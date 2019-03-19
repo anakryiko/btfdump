@@ -1,25 +1,74 @@
-use memmap;
 use std::error::Error;
+
+use memmap;
 use structopt::StructOpt;
 
+use btfdump::btf;
+use btfdump::c_dumper;
+use btfdump::BtfError;
+
+#[derive(Debug)]
+enum DumpFormat {
+    Human,
+    Json,
+    JsonPretty,
+    C,
+}
+
+impl std::str::FromStr for DumpFormat {
+    type Err = BtfError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "human" | "h" => Ok(DumpFormat::Human),
+            "json" | "j" => Ok(DumpFormat::Json),
+            "json-pretty" | "jp" => Ok(DumpFormat::JsonPretty),
+            "c" => Ok(DumpFormat::C),
+            _ => Err(BtfError::new_owned(format!(
+                "unrecognized dump format: '{}'",
+                s
+            ))),
+        }
+    }
+}
+
 #[derive(StructOpt)]
-struct Cli {
-    file_path: String,
+#[structopt(name = "btfdump", about = "BTF introspection tool")]
+enum Cmd {
+    #[structopt(name = "dump", about = "Dump BTF data in various formats")]
+    Dump {
+        #[structopt(parse(from_os_str))]
+        file: std::path::PathBuf,
+        #[structopt(short = "f", long = "format", default_value = "human")]
+        format: DumpFormat,
+    },
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let args = Cli::from_args();
+    let cmd = Cmd::from_args();
 
-    let file = std::fs::File::open(&args.file_path)?;
-    let file = unsafe { memmap::Mmap::map(&file) }?;
-    let file = object::ElfFile::parse(&*file)?;
-    let btf = btfdump::Btf::load(file)?;
+    match cmd {
+        Cmd::Dump { file, format } => {
+            let file = std::fs::File::open(&file)?;
+            let file = unsafe { memmap::Mmap::map(&file) }?;
+            let file = object::ElfFile::parse(&*file)?;
+            let btf = btf::Btf::load(file)?;
 
-    let mut idx = 0;
-    for t in btf.types() {
-        println!("#{}: {}", idx, t);
-        idx = idx + 1;
+            match format {
+                DumpFormat::Human => {
+                    let mut idx = 0;
+                    for t in btf.types() {
+                        println!("#{}: {}", idx, t);
+                        idx = idx + 1;
+                    }
+                }
+                DumpFormat::Json => {}
+                DumpFormat::JsonPretty => {}
+                DumpFormat::C => {
+                    let dumper = c_dumper::CDumper::new();
+                }
+            }
+        }
     }
-
     Ok(())
 }
