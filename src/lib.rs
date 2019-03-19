@@ -31,12 +31,17 @@ const BTF_KIND_CONST: u32 = 10;
 const BTF_KIND_RESTRICT: u32 = 11;
 const BTF_KIND_FUNC: u32 = 12;
 const BTF_KIND_FUNC_PROTO: u32 = 13;
-//const BTF_KIND_MAX: u32 = 13;
+const BTF_KIND_VAR: u32 = 14;
+const BTF_KIND_DATASEC: u32 = 15;
+//const BTF_KIND_MAX: u32 = 15;
 //const NR_BTF_KINDS: u32 = BTF_KIND_MAX + 1;
 
 const BTF_INT_SIGNED: u32 = 0b001;
 const BTF_INT_CHAR: u32 = 0b010;
 const BTF_INT_BOOL: u32 = 0b100;
+
+const BTF_VAR_STATIC: u32 = 0;
+const BTF_VAR_GLOBAL_ALLOCATED: u32 = 1;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, DerivePread, Pwrite, IOread, IOwrite, SizeWith)]
@@ -89,12 +94,12 @@ struct btf_param {
     pub type_id: u32,
 }
 
-#[derive(Debug, PartialEq)]
-pub enum BtfIntEncoding {
-    None,
-    Signed,
-    Char,
-    Bool,
+#[repr(C)]
+#[derive(Debug, Copy, Clone, DerivePread, Pwrite, IOread, IOwrite, SizeWith)]
+struct btf_datasec_var {
+    pub type_id: u32,
+    pub offset: u32,
+    pub size: u32,
 }
 
 pub const ANON_NAME: &'static str = "<anon>";
@@ -105,6 +110,14 @@ fn disp_name(s: &str) -> &str {
     } else {
         s
     }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum BtfIntEncoding {
+    None,
+    Signed,
+    Char,
+    Bool,
 }
 
 impl fmt::Display for BtfIntEncoding {
@@ -176,6 +189,38 @@ impl fmt::Display for BtfFuncParam {
 }
 
 #[derive(Debug)]
+pub enum BtfVarKind {
+    Static,
+    GlobalAlloc,
+}
+
+impl fmt::Display for BtfVarKind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            BtfVarKind::Static => write!(f, "static"),
+            BtfVarKind::GlobalAlloc => write!(f, "global-alloc"),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct BtfDatasecVar {
+    type_id: u32,
+    offset: u32,
+    sz: u32,
+}
+
+impl fmt::Display for BtfDatasecVar {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "off:{} sz:{} --> [{}]",
+            self.offset, self.sz, self.type_id
+        )
+    }
+}
+
+#[derive(Debug)]
 pub enum BtfType {
     Void,
     Int {
@@ -231,6 +276,16 @@ pub enum BtfType {
     FuncProto {
         res_type_id: u32,
         params: Vec<BtfFuncParam>,
+    },
+    Var {
+        name: String,
+        type_id: u32,
+        kind: BtfVarKind,
+    },
+    Datasec {
+        name: String,
+        sz: u32,
+        vars: Vec<BtfDatasecVar>,
     },
 }
 
@@ -346,6 +401,32 @@ impl fmt::Display for BtfType {
                 )?;
                 for i in 0..params.len() {
                     write!(f, "\n\t#{:02} {}", i, params[i])?;
+                }
+                Ok(())
+            }
+            BtfType::Var {
+                name,
+                type_id,
+                kind,
+            } => write!(
+                f,
+                "<{}> '{}' kind:{} --> [{}]",
+                "VAR",
+                disp_name(name),
+                kind,
+                type_id
+            ),
+            BtfType::Datasec { name, sz, vars } => {
+                write!(
+                    f,
+                    "<{}> '{}' sz:{} n:{}",
+                    "DATASEC",
+                    disp_name(name),
+                    sz,
+                    vars.len()
+                )?;
+                for i in 0..vars.len() {
+                    write!(f, "\n\t#{:02} {}", i, vars[i])?;
                 }
                 Ok(())
             }
@@ -468,12 +549,13 @@ impl Btf {
             | BtfType::Const { .. }
             | BtfType::Restrict { .. }
             | BtfType::Func { .. } => common,
-            BtfType::Int { .. } => common + size_of::<u32>(),
+            BtfType::Int { .. } | BtfType::Var { .. } => common + size_of::<u32>(),
             BtfType::Array { .. } => common + size_of::<btf_array>(),
             BtfType::Struct { members: m, .. } => common + m.len() * size_of::<btf_member>(),
             BtfType::Union { members: m, .. } => common + m.len() * size_of::<btf_member>(),
             BtfType::Enum { values: v, .. } => common + v.len() * size_of::<btf_enum>(),
             BtfType::FuncProto { params: m, .. } => common + m.len() * size_of::<btf_param>(),
+            BtfType::Datasec { vars: v, .. } => common + v.len() * size_of::<btf_datasec_var>(),
         }
     }
 
@@ -508,6 +590,8 @@ impl Btf {
                 proto_type_id: t.type_id,
             }),
             BTF_KIND_FUNC_PROTO => self.load_func_proto(&t, extra, strs),
+            BTF_KIND_VAR => self.load_var(&t, extra, strs),
+            BTF_KIND_DATASEC => self.load_datasec(&t, extra, strs),
             _ => btf_error(format!("Unknown BTF kind: {}", kind)),
         }
     }
@@ -610,6 +694,41 @@ impl Btf {
         Ok(BtfType::FuncProto {
             res_type_id: t.type_id,
             params: params,
+        })
+    }
+
+    fn load_var(&self, t: &btf_type, extra: &[u8], strs: &[u8]) -> BtfResult<BtfType> {
+        let kind = extra.pread_with::<u32>(0, self.endian)?;
+        Ok(BtfType::Var {
+            name: Btf::get_btf_str(strs, t.name_off)?,
+            type_id: t.type_id,
+            kind: match kind {
+                BTF_VAR_STATIC => BtfVarKind::Static,
+                BTF_VAR_GLOBAL_ALLOCATED => BtfVarKind::GlobalAlloc,
+                _ => {
+                    return btf_error(format!("Unknown BTF var kind: {}", kind));
+                }
+            },
+        })
+    }
+
+    fn load_datasec(&self, t: &btf_type, extra: &[u8], strs: &[u8]) -> BtfResult<BtfType> {
+        let mut vars = Vec::new();
+        let mut off: usize = 0;
+
+        for _ in 0..Btf::get_vlen(t.info) {
+            let v = extra.pread_with::<btf_datasec_var>(off, self.endian)?;
+            vars.push(BtfDatasecVar {
+                type_id: v.type_id,
+                offset: v.offset,
+                sz: v.size,
+            });
+            off += size_of::<btf_datasec_var>();
+        }
+        Ok(BtfType::Datasec {
+            name: Btf::get_btf_str(strs, t.name_off)?,
+            sz: t.type_id, // it's a type/size union in C
+            vars: vars,
         })
     }
 
