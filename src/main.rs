@@ -56,10 +56,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
             match format {
                 DumpFormat::Human => {
-                    let mut idx = 0;
-                    for t in btf.types() {
-                        println!("#{}: {}", idx, t);
-                        idx = idx + 1;
+                    for (i, t) in btf.types().iter().enumerate() {
+                        println!("#{}: {}", i, t);
                     }
                 }
                 DumpFormat::Json => {}
