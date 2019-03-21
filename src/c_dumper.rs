@@ -70,19 +70,19 @@ impl<'a> CDumper<'a> {
             | BtfType::Datasec(_) => {}
             BtfType::Struct(t) => {
                 if !t.name.is_empty() {
-                    self.emit_struct(t, 0);
+                    self.emit_struct_def(t, 0);
                     println!(";\n");
                 }
             }
             BtfType::Union(t) => {
                 if !t.name.is_empty() {
-                    self.emit_union(t, 0);
+                    self.emit_union_def(t, 0);
                     println!(";\n");
                 }
             }
             BtfType::Enum(t) => {
                 if !t.name.is_empty() {
-                    self.emit_enum(t, 0);
+                    self.emit_enum_def(t, 0);
                     println!(";\n");
                 }
             }
@@ -110,109 +110,228 @@ impl<'a> CDumper<'a> {
         s.visit = VisitState::Visited;
     }
 
-    fn emit_struct(&self, t: &BtfStruct, lvl: usize) {
-        print!("{}struct{}{} {{", pfx(lvl), sep(&t.name), t.name);
+    fn emit_struct_def(&self, t: &BtfStruct, lvl: usize) {
+        print!("struct{}{} {{", sep(&t.name), t.name);
         for m in &t.members {
-            print!("\n");
+            print!("\n{}", pfx(lvl + 1));
             self.emit_type_decl(m.type_id, &m.name, lvl + 1);
             print!(";");
         }
         print!("\n{}}}", pfx(lvl));
     }
 
-    fn emit_union(&self, t: &BtfUnion, lvl: usize) {
-        print!("{}union{}{} {{", pfx(lvl), sep(&t.name), t.name);
+    fn emit_union_def(&self, t: &BtfUnion, lvl: usize) {
+        print!("union{}{} {{", sep(&t.name), t.name);
         for m in &t.members {
-            print!("\n");
+            print!("\n{}", pfx(lvl + 1));
             self.emit_type_decl(m.type_id, &m.name, lvl + 1);
             print!(";");
         }
         print!("\n{}}}", pfx(lvl));
     }
 
-    fn emit_enum(&self, t: &BtfEnum, lvl: usize) {
-        print!("{}enum{}{} {{", pfx(lvl), sep(&t.name), t.name);
+    fn emit_enum_def(&self, t: &BtfEnum, lvl: usize) {
+        print!("enum{}{} {{", sep(&t.name), t.name);
         for v in &t.values {
             print!("\n{}{} = {},", pfx(lvl + 1), v.name, v.value);
         }
         print!("\n{}}}", pfx(lvl));
     }
 
-    fn emit_type_decl(&self, id: u32, fname: &str, lvl: usize) {
-        let bt = self.btf.type_by_id(id);
-        match bt {
-            BtfType::Void => print!("{}void{}{}", pfx(lvl), sep(fname), fname),
-            BtfType::Int(t) => print!("{}{}{}{}", pfx(lvl), t.name, sep(fname), fname),
-            BtfType::Ptr(t) => {
-                // XXX: handle array and func_proto pointers properly
-                self.emit_type_decl(t.type_id, "", lvl);
-                print!(" *{}", fname);
-            }
-            BtfType::Array(t) => {
-                self.emit_type_decl(t.val_type_id, "", lvl);
-                print!("{}{}[{}]", sep(fname), fname, t.nelems);
-            }
-            BtfType::Struct(t) => {
-                if t.name.is_empty() {
-                    self.emit_struct(t, lvl); // inline anonymous struct
-                } else {
-                    print!("{}struct {}", pfx(lvl), t.name);
+    fn emit_type_decl(&self, mut id: u32, fname: &str, lvl: usize) {
+        // This algorithm emits correct C syntax for any type definition.
+        //
+        // For most types it's trivial, but there are few quirky type declaration  cases worth
+        // mentioning:
+        //   - function prototypes;
+        //   - arrays;
+        //   - const/volatile/restrict for pointers vs other types.
+        // See Peter van der Linden's "Expert C Programming: Deep C Secrets", Ch.3 "Unscrambling
+        // Declarations in C" for good discussion of this topic.
+        //
+        // This algorithm is in reverse to van der Linden's parsing algorithm. It goes from
+        // structured BTF representation of type declaration to a valid compilable C syntax.
+        let mut chain = Vec::new();
+        loop {
+            let bt = self.btf.type_by_id(id);
+            match bt {
+                BtfType::Ptr(t) => {
+                    chain.push(bt);
+                    id = t.type_id;
                 }
-                print!("{}{}", sep(fname), fname);
-            }
-            BtfType::Union(t) => {
-                if t.name.is_empty() {
-                    self.emit_union(t, lvl); // inline anonymous union
-                } else {
-                    print!("{}union {}", pfx(lvl), t.name);
+                BtfType::Const(t) => {
+                    chain.push(bt);
+                    id = t.type_id;
                 }
-                print!("{}{}", sep(fname), fname);
-            }
-            BtfType::Enum(t) => {
-                if t.name.is_empty() {
-                    self.emit_enum(t, lvl); // inline anonymous enum
-                } else {
-                    print!("{}enum {}", pfx(lvl), t.name);
+                BtfType::Volatile(t) => {
+                    chain.push(bt);
+                    id = t.type_id;
                 }
-                print!("{}{}", sep(fname), fname);
-            }
-            BtfType::Fwd(t) => {
-                print!("{}", pfx(lvl));
-                match t.kind {
-                    BtfFwdKind::Struct => print!("struct {}", t.name),
-                    BtfFwdKind::Union => print!("union {}", t.name),
+                BtfType::Restrict(t) => {
+                    chain.push(bt);
+                    id = t.type_id;
                 }
-                print!("{}{}", sep(fname), fname);
-            }
-            BtfType::Typedef(t) => print!("{}{}{}{}", pfx(lvl), t.name, sep(fname), fname),
-            BtfType::Volatile(t) => {
-                print!("volatile ");
-                self.emit_type_decl(t.type_id, fname, lvl);
-            }
-            BtfType::Const(t) => {
-                print!("const ");
-                self.emit_type_decl(t.type_id, fname, lvl);
-            }
-            BtfType::Restrict(t) => {
-                print!("restrict ");
-                self.emit_type_decl(t.type_id, fname, lvl);
-            }
-            BtfType::FuncProto(t) => {
-                self.emit_type_decl(t.res_type_id, "", lvl);
-                print!("{}{}(", sep(fname), fname);
-                let mut first = true;
-                for p in &t.params {
-                    if !first {
-                        print!(", ");
+                BtfType::Array(t) => {
+                    chain.push(bt);
+                    id = t.val_type_id;
+                }
+                BtfType::FuncProto(t) => {
+                    chain.push(bt);
+                    id = t.res_type_id;
+                }
+                BtfType::Var(_) | BtfType::Datasec(_) | BtfType::Func(_) => {
+                    print!("!@#! UNEXPECT TYPE DECL CHAIN ");
+                    for parent_id in chain.iter().rev() {
+                        print!("[{}] --> ", parent_id);
                     }
-                    first = false;
-                    self.emit_type_decl(p.type_id, &p.name, 0);
+                    print!("[{}] {}", id, bt);
+                    return;
                 }
-                print!(")");
+                _ => {
+                    chain.push(bt);
+                    break;
+                }
             }
-            BtfType::Func(_) | BtfType::Var(_) | BtfType::Datasec(_) => {
-                print!("!@#! UNEXPECT TYPE DECL TYPE id:{}, type:{}", id, bt);
+        }
+        self.emit_type_chain(chain, fname, lvl);
+    }
+
+    fn emit_type_chain(&self, mut chain: Vec<&BtfType>, fname: &str, lvl: usize) {
+        // default to true, in case we have single ptr in a chain. E.g., in ptr -> func_proto case.
+        // func_proto will start a new emit_type_chain with just ptr, which should be emitted as
+        // (*) or (*<fname>), so we don't want to preprend space for that last ptr.
+        let mut last_was_ptr = true;
+        while let Some(bt) = chain.pop() {
+            match bt {
+                BtfType::Void => {
+                    self.emit_non_ptr_mods(&mut chain);
+                    print!("void");
+                }
+                BtfType::Int(t) => {
+                    self.emit_non_ptr_mods(&mut chain);
+                    print!("{}", t.name);
+                }
+                BtfType::Struct(t) => {
+                    self.emit_non_ptr_mods(&mut chain);
+                    if t.name.is_empty() {
+                        self.emit_struct_def(t, lvl); // inline anonymous struct
+                    } else {
+                        print!("struct {}", t.name);
+                    }
+                }
+                BtfType::Union(t) => {
+                    self.emit_non_ptr_mods(&mut chain);
+                    if t.name.is_empty() {
+                        self.emit_union_def(t, lvl); // inline anonymous union
+                    } else {
+                        print!("union {}", t.name);
+                    }
+                }
+                BtfType::Enum(t) => {
+                    self.emit_non_ptr_mods(&mut chain);
+                    if t.name.is_empty() {
+                        self.emit_enum_def(t, lvl); // inline anonymous enum
+                    } else {
+                        print!("enum {}", t.name);
+                    }
+                }
+                BtfType::Fwd(t) => {
+                    self.emit_non_ptr_mods(&mut chain);
+                    match t.kind {
+                        BtfFwdKind::Struct => print!("struct {}", t.name),
+                        BtfFwdKind::Union => print!("union {}", t.name),
+                    }
+                }
+                BtfType::Typedef(t) => {
+                    self.emit_non_ptr_mods(&mut chain);
+                    print!("{}", t.name);
+                }
+                BtfType::Ptr(_) => {
+                    if last_was_ptr {
+                        print!("*");
+                    } else {
+                        print!(" *");
+                    }
+                }
+                BtfType::Volatile(_) => {
+                    print!(" volatile");
+                }
+                BtfType::Const(_) => {
+                    print!(" const");
+                }
+                BtfType::Restrict(_) => {
+                    print!(" restrict");
+                }
+                BtfType::Array(t) => {
+                    self.emit_non_ptr_mods(&mut chain);
+                    if chain.is_empty() {
+                        self.emit_name(fname, last_was_ptr);
+                    } else {
+                        print!(" (");
+                        self.emit_type_chain(chain, fname, lvl);
+                        print!(")");
+                    }
+                    print!("[{}]", t.nelems);
+                    return;
+                }
+                BtfType::FuncProto(t) => {
+                    self.emit_non_ptr_mods(&mut chain);
+                    if chain.is_empty() {
+                        self.emit_name(fname, last_was_ptr);
+                    } else {
+                        print!(" (");
+                        self.emit_type_chain(chain, fname, lvl);
+                        print!(")");
+                    }
+                    print!("(");
+                    let mut first = true;
+                    for p in &t.params {
+                        if !first {
+                            print!(", ");
+                        }
+                        first = false;
+                        self.emit_type_decl(p.type_id, &p.name, lvl);
+                    }
+                    print!(")");
+                    return;
+                }
+                BtfType::Func(_) | BtfType::Var(_) | BtfType::Datasec(_) => {
+                    print!("!@#! UNEXPECT TYPE DECL TYPE: {}", bt);
+                }
             }
+            last_was_ptr = match bt {
+                BtfType::Ptr(_) => true,
+                _ => false,
+            }
+        }
+        self.emit_name(fname, last_was_ptr);
+    }
+
+    fn emit_name(&self, fname: &str, last_was_ptr: bool) {
+        if last_was_ptr {
+            print!("{}", fname);
+        } else {
+            print!("{}{}", sep(fname), fname);
+        }
+    }
+
+    fn emit_non_ptr_mods(&self, chain: &mut Vec<&BtfType>) {
+        while !chain.is_empty() {
+            match chain[chain.len() - 1] {
+                BtfType::Volatile(_) => {
+                    print!("volatile ");
+                }
+                BtfType::Const(_) => {
+                    print!("const ");
+                }
+                BtfType::Restrict(_) => {
+                    print!("restrict ");
+                }
+                _ => {
+                    break;
+                }
+            }
+            chain.pop();
         }
     }
 }
