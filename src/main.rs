@@ -63,7 +63,10 @@ fn main() -> Result<(), Box<dyn Error>> {
                 DumpFormat::Json => {}
                 DumpFormat::JsonPretty => {}
                 DumpFormat::C => {
-                    let dumper = c_dumper::CDumper::new();
+                    let mut dumper = c_dumper::CDumper::new(&btf);
+                    for id in 0..btf.type_cnt() {
+                        dumper.dump(id as u32)?;
+                    }
                 }
             }
         }
