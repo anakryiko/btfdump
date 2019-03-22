@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::btf::*;
 use crate::BtfResult;
 
@@ -23,24 +21,34 @@ struct TypeState {
 
 pub struct CDumper<'a> {
     btf: &'a Btf,
-    state: HashMap<u32, TypeState>,
+    state: Vec<TypeState>,
 }
 
 impl<'a> CDumper<'a> {
     pub fn new(btf: &'a Btf) -> CDumper<'a> {
-        CDumper {
+        let mut dumper = CDumper {
             btf: btf,
-            state: HashMap::new(),
-        }
+            state: Vec::new(),
+        };
+        dumper.state.resize_with(btf.type_cnt(), Default::default);
+        dumper
     }
 
     pub fn dump_type(&mut self, id: u32) -> BtfResult<()> {
+        self.emit_type(id, id)
+    }
+
+    pub fn emit_type(&mut self, id: u32, container_id: u32) -> BtfResult<()> {
         let bt = self.btf.type_by_id(id);
 
-        let s = self.state.entry(id).or_default();
+        let mut s = &mut self.state[id as usize];
         match s.emit_state {
             EmitState::NotEmitted => s.emit_state = EmitState::Emitting,
             EmitState::Emitting => {
+                // no need for fwd declaration if we are referencing a struct/union we are part of
+                if id == container_id {
+                    return Ok(());
+                }
                 // only struct, union and enum can be forward-declared
                 match bt {
                     BtfType::Struct(t) => println!("struct {};\n", t.name),
@@ -58,20 +66,20 @@ impl<'a> CDumper<'a> {
         match bt {
             BtfType::Void | BtfType::Int(_) => {}
             BtfType::Var(_) | BtfType::Datasec(_) => {}
-            BtfType::Ptr(t) => self.dump_type(t.type_id)?,
-            BtfType::Volatile(t) => self.dump_type(t.type_id)?,
-            BtfType::Const(t) => self.dump_type(t.type_id)?,
-            BtfType::Restrict(t) => self.dump_type(t.type_id)?,
-            BtfType::Array(t) => self.dump_type(t.val_type_id)?,
+            BtfType::Ptr(t) => self.emit_type(t.type_id, container_id)?,
+            BtfType::Volatile(t) => self.emit_type(t.type_id, container_id)?,
+            BtfType::Const(t) => self.emit_type(t.type_id, container_id)?,
+            BtfType::Restrict(t) => self.emit_type(t.type_id, container_id)?,
+            BtfType::Array(t) => self.emit_type(t.val_type_id, container_id)?,
             BtfType::FuncProto(t) => {
-                self.dump_type(t.res_type_id)?;
+                self.emit_type(t.res_type_id, container_id)?;
                 for p in &t.params {
-                    self.dump_type(p.type_id)?;
+                    self.emit_type(p.type_id, container_id)?;
                 }
             }
             BtfType::Struct(t) => {
                 for m in &t.members {
-                    self.dump_type(m.type_id)?;
+                    self.emit_type(m.type_id, id)?;
                 }
                 if !t.name.is_empty() {
                     self.emit_struct_def(t, 0);
@@ -80,7 +88,7 @@ impl<'a> CDumper<'a> {
             }
             BtfType::Union(t) => {
                 for m in &t.members {
-                    self.dump_type(m.type_id)?;
+                    self.emit_type(m.type_id, id)?;
                 }
                 if !t.name.is_empty() {
                     self.emit_union_def(t, 0);
@@ -98,20 +106,19 @@ impl<'a> CDumper<'a> {
                 println!(";\n");
             }
             BtfType::Typedef(t) => {
-                self.dump_type(t.type_id)?;
+                self.emit_type(t.type_id, container_id)?;
                 print!("typedef ");
                 self.emit_type_decl(t.type_id, &t.name, 0);
                 println!(";\n");
             }
             BtfType::Func(t) => {
-                self.dump_type(t.proto_type_id)?;
+                self.emit_type(t.proto_type_id, container_id)?;
                 self.emit_type_decl(t.proto_type_id, &t.name, 0);
                 println!(";\n");
             }
         }
 
-        let mut s = self.state.entry(id).or_default();
-        s.emit_state = EmitState::Emitted;
+        self.state[id as usize].emit_state = EmitState::Emitted;
 
         Ok(())
     }
