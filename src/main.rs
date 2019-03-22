@@ -65,7 +65,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 DumpFormat::C => {
                     let mut dumper = c_dumper::CDumper::new(&btf);
                     for id in 0..btf.type_cnt() {
-                        dumper.dump(id as u32)?;
+                        dumper.dump_type(id as u32)?;
                     }
                 }
             }

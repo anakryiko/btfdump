@@ -1,24 +1,24 @@
 use std::collections::HashMap;
 
 use crate::btf::*;
-use crate::{btf_error, BtfResult};
+use crate::BtfResult;
 
-enum VisitState {
-    Unvisited,
-    Visiting,
-    Visited,
+enum EmitState {
+    NotEmitted,
+    Emitting,
+    FwdEmitted,
+    Emitted,
 }
 
-impl Default for VisitState {
+impl Default for EmitState {
     fn default() -> Self {
-        VisitState::Unvisited
+        EmitState::NotEmitted
     }
 }
 
 #[derive(Default)]
 struct TypeState {
-    visit: VisitState,
-    fwd_emitted: bool,
+    emit_state: EmitState,
 }
 
 pub struct CDumper<'a> {
@@ -34,47 +34,54 @@ impl<'a> CDumper<'a> {
         }
     }
 
-    pub fn dump(&mut self, id: u32) -> BtfResult<()> {
-        let s = self.state.entry(id).or_default();
+    pub fn dump_type(&mut self, id: u32) -> BtfResult<()> {
         let bt = self.btf.type_by_id(id);
 
-        match s.visit {
-            VisitState::Unvisited => s.visit = VisitState::Visiting,
-            VisitState::Visited => return Ok(()),
-            VisitState::Visiting => match bt {
-                BtfType::Struct(_) | BtfType::Union(_) | BtfType::Enum(_) => {
-                    // we have type loop, have to forward-declare type
-                    if !s.fwd_emitted {
-                        s.fwd_emitted = true;
-                        self.emit_type_decl(id, "", 0);
-                        println!(";\n");
-                    }
-                    return Ok(());
+        let s = self.state.entry(id).or_default();
+        match s.emit_state {
+            EmitState::NotEmitted => s.emit_state = EmitState::Emitting,
+            EmitState::Emitting => {
+                // only struct, union and enum can be forward-declared
+                match bt {
+                    BtfType::Struct(t) => println!("struct {};\n", t.name),
+                    BtfType::Union(t) => println!("union {};\n", t.name),
+                    BtfType::Enum(t) => println!("enum {};\n", t.name),
+                    _ => return Ok(()),
                 }
-                _ => {
-                    return btf_error(format!("Loop detected involving id:{}, type:{}", id, bt));
-                }
-            },
+                s.emit_state = EmitState::FwdEmitted;
+                return Ok(());
+            }
+            EmitState::FwdEmitted => return Ok(()),
+            EmitState::Emitted => return Ok(()),
         }
 
         match bt {
-            BtfType::Void
-            | BtfType::Int(_)
-            | BtfType::Ptr(_)
-            | BtfType::Array(_)
-            | BtfType::Volatile(_)
-            | BtfType::Const(_)
-            | BtfType::Restrict(_)
-            | BtfType::FuncProto(_)
-            | BtfType::Var(_)
-            | BtfType::Datasec(_) => {}
+            BtfType::Void | BtfType::Int(_) => {}
+            BtfType::Var(_) | BtfType::Datasec(_) => {}
+            BtfType::Ptr(t) => self.dump_type(t.type_id)?,
+            BtfType::Volatile(t) => self.dump_type(t.type_id)?,
+            BtfType::Const(t) => self.dump_type(t.type_id)?,
+            BtfType::Restrict(t) => self.dump_type(t.type_id)?,
+            BtfType::Array(t) => self.dump_type(t.val_type_id)?,
+            BtfType::FuncProto(t) => {
+                self.dump_type(t.res_type_id)?;
+                for p in &t.params {
+                    self.dump_type(p.type_id)?;
+                }
+            }
             BtfType::Struct(t) => {
+                for m in &t.members {
+                    self.dump_type(m.type_id)?;
+                }
                 if !t.name.is_empty() {
                     self.emit_struct_def(t, 0);
                     println!(";\n");
                 }
             }
             BtfType::Union(t) => {
+                for m in &t.members {
+                    self.dump_type(m.type_id)?;
+                }
                 if !t.name.is_empty() {
                     self.emit_union_def(t, 0);
                     println!(";\n");
@@ -91,23 +98,22 @@ impl<'a> CDumper<'a> {
                 println!(";\n");
             }
             BtfType::Typedef(t) => {
+                self.dump_type(t.type_id)?;
                 print!("typedef ");
                 self.emit_type_decl(t.type_id, &t.name, 0);
                 println!(";\n");
             }
             BtfType::Func(t) => {
+                self.dump_type(t.proto_type_id)?;
                 self.emit_type_decl(t.proto_type_id, &t.name, 0);
                 println!(";\n");
             }
         }
 
-        self.mark_visited(id);
-        Ok(())
-    }
-
-    fn mark_visited(&mut self, id: u32) {
         let mut s = self.state.entry(id).or_default();
-        s.visit = VisitState::Visited;
+        s.emit_state = EmitState::Emitted;
+
+        Ok(())
     }
 
     fn emit_struct_def(&self, t: &BtfStruct, lvl: usize) {
