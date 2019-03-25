@@ -34,6 +34,9 @@ struct X {
 	} y;
 };
 
+struct Test {};
+typedef struct Test Test;
+
 int main() {
 	static struct list_head s1;
 	static struct hlist_head s2;
@@ -41,5 +44,7 @@ int main() {
 	static struct b b;
 	static struct X x;
 	static struct Y y;
+	static struct Test t1;
+	static Test t2;
 	return 0;
 }

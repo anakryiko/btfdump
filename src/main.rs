@@ -41,6 +41,8 @@ enum Cmd {
         file: std::path::PathBuf,
         #[structopt(short = "f", long = "format", default_value = "human")]
         format: DumpFormat,
+        #[structopt(short = "v", long = "verbose")]
+        verbose: bool,
     },
 }
 
@@ -48,7 +50,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let cmd = Cmd::from_args();
 
     match cmd {
-        Cmd::Dump { file, format } => {
+        Cmd::Dump {
+            file,
+            format,
+            verbose,
+        } => {
             let file = std::fs::File::open(&file)?;
             let file = unsafe { memmap::Mmap::map(&file) }?;
             let file = object::ElfFile::parse(&*file)?;
@@ -63,10 +69,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                 DumpFormat::Json => {}
                 DumpFormat::JsonPretty => {}
                 DumpFormat::C => {
-                    let mut dumper = c_dumper::CDumper::new(&btf);
-                    for id in 0..btf.type_cnt() {
-                        dumper.dump_type(id as u32)?;
-                    }
+                    let mut dumper = c_dumper::CDumper::new(&btf, verbose);
+                    dumper.dump_types()?;
                 }
             }
         }

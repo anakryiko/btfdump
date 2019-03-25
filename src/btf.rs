@@ -485,8 +485,8 @@ impl Btf {
         &self.types[type_id as usize]
     }
 
-    pub fn type_cnt(&self) -> usize {
-        self.types.len()
+    pub fn type_cnt(&self) -> u32 {
+        self.types.len() as u32
     }
 
     pub fn load<'data>(elf: object::ElfFile<'data>) -> BtfResult<Btf> {
