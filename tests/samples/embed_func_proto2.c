@@ -8,7 +8,7 @@ struct s0 {
 	struct s1 a[10];
 };
 
-typedef struct { struct s0* a; } (* fn)(struct s0 a, struct s1 b);
+typedef struct { struct s0* a; } (* fn)(struct { struct s0 a; struct s1 b;} a);
 
 struct s2 {
 	struct s0* _a;

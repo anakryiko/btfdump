@@ -103,7 +103,7 @@ impl<'a> CDumper<'a> {
         Ok(())
     }
 
-    fn order_type(&mut self, id: u32, has_ptr: bool, order: &mut Vec<u32>) -> BtfResult<()> {
+    fn order_type(&mut self, id: u32, has_ptr: bool, order: &mut Vec<u32>) -> BtfResult<bool> {
         if self.verbose {
             eprintln!(
                 "ORDER TYPE id:{}, has_ptr:{}, type:{}, is_def:{}, order_state:{:?}",
@@ -118,45 +118,48 @@ impl<'a> CDumper<'a> {
         // could be an independent definition (i.e., stand-alone fwd decl, enum, typedef, struct,
         // union). Ptrs, arrays, func_protos, modifiers are just means to get to these definitions.
         // Int/void don't need definitions, they are assumed to be always properly defined.
-        // We also ignore datasec, var, and funcs.
-        if self.is_def(id) {
-            match self.get_order_state(id) {
-                OrderState::NotOrdered => self.set_order_state(id, OrderState::Ordering),
-                OrderState::Ordering => match self.btf.type_by_id(id) {
-                    BtfType::Struct(t) if has_ptr && !t.name.is_empty() => return Ok(()),
-                    BtfType::Union(t) if has_ptr && !t.name.is_empty() => return Ok(()),
-                    // XXX: we should check that typedef doesn't have embedded struct/union
-                    // (directly or indirectly through array/func_proto/ptr
-                    BtfType::Typedef(_t) if has_ptr => return Ok(()),
-                    _ => {
-                        return btf_error(format!(
-                            "Unsatisfiable type cycle, id: {}, type: {}",
-                            id,
-                            self.btf.type_by_id(id)
-                        ));
-                    }
-                },
-                OrderState::Ordered => return Ok(()),
-            }
+        // We also ignore datasec, var, and funcs. So for all non-defining kinds, we never even set
+        // ordering state, for defining kinds we set OrderState::Ordering and subsequently
+        // OrderState::Ordered only if it forms a strong link.
+        match self.get_order_state(id) {
+            OrderState::NotOrdered => {}
+            OrderState::Ordering => match self.btf.type_by_id(id) {
+                BtfType::Struct(t) if has_ptr && !t.name.is_empty() => return Ok(false),
+                BtfType::Union(t) if has_ptr && !t.name.is_empty() => return Ok(false),
+                _ => {
+                    return btf_error(format!(
+                        "Unsatisfiable type cycle, id: {}, type: {}",
+                        id,
+                        self.btf.type_by_id(id)
+                    ));
+                }
+            },
+            // return true, letting typedefs know that it's ok to be emitted
+            OrderState::Ordered => return Ok(true),
         }
         match self.btf.type_by_id(id) {
             BtfType::Func(_) | BtfType::Var(_) | BtfType::Datasec(_) => {}
             BtfType::Void | BtfType::Int(_) => {}
-            BtfType::Volatile(t) => self.order_type(t.type_id, has_ptr, order)?,
-            BtfType::Const(t) => self.order_type(t.type_id, has_ptr, order)?,
-            BtfType::Restrict(t) => self.order_type(t.type_id, has_ptr, order)?,
-            BtfType::Ptr(t) => self.order_type(t.type_id, true, order)?,
-            BtfType::Array(t) => self.order_type(t.val_type_id, has_ptr, order)?,
+            BtfType::Volatile(t) => return self.order_type(t.type_id, has_ptr, order),
+            BtfType::Const(t) => return self.order_type(t.type_id, has_ptr, order),
+            BtfType::Restrict(t) => return self.order_type(t.type_id, has_ptr, order),
+            BtfType::Ptr(t) => return self.order_type(t.type_id, true, order),
+            BtfType::Array(t) => return self.order_type(t.val_type_id, has_ptr, order),
             BtfType::FuncProto(t) => {
-                self.order_type(t.res_type_id, has_ptr, order)?;
+                let mut is_strong = self.order_type(t.res_type_id, has_ptr, order)?;
                 for p in &t.params {
-                    self.order_type(p.type_id, has_ptr, order)?;
+                    if self.order_type(p.type_id, has_ptr, order)? {
+                        is_strong = true;
+                    }
                 }
+                return Ok(is_strong);
             }
             BtfType::Struct(t) => {
                 // struct/union is part of strong link, only if it's embedded (so no ptr in a path)
                 // or it's anonymous (so has to be defined inline, even if declared through ptr)
                 if !has_ptr || t.name.is_empty() {
+                    self.set_order_state(id, OrderState::Ordering);
+
                     for m in &t.members {
                         self.order_type(m.type_id, false, order)?;
                     }
@@ -164,13 +167,17 @@ impl<'a> CDumper<'a> {
                     if !t.name.is_empty() {
                         order.push(id);
                     }
-                } else {
-                    self.set_order_state(id, OrderState::NotOrdered);
+
+                    self.set_order_state(id, OrderState::Ordered);
+                    // report this was strong link
+                    return Ok(true);
                 }
             }
             BtfType::Union(t) => {
                 // see above comment for struct
                 if !has_ptr || t.name.is_empty() {
+                    self.set_order_state(id, OrderState::Ordering);
+
                     for m in &t.members {
                         self.order_type(m.type_id, false, order)?;
                     }
@@ -178,21 +185,28 @@ impl<'a> CDumper<'a> {
                     if !t.name.is_empty() {
                         order.push(id);
                     }
-                } else {
-                    self.set_order_state(id, OrderState::NotOrdered);
+
+                    self.set_order_state(id, OrderState::Ordered);
+                    // report this was strong link
+                    return Ok(true);
                 }
             }
-            BtfType::Enum(_) | BtfType::Fwd(_) => order.push(id),
-            BtfType::Typedef(t) => {
-                self.order_type(t.type_id, has_ptr, order)?;
+            BtfType::Enum(_) | BtfType::Fwd(_) => {
                 order.push(id);
+                self.set_order_state(id, OrderState::Ordered);
+                // report this was strong link
+                return Ok(true);
+            }
+            BtfType::Typedef(t) => {
+                if self.order_type(t.type_id, has_ptr, order)? {
+                    order.push(id);
+                    self.set_order_state(id, OrderState::Ordered);
+                    // report this was strong link
+                    return Ok(true);
+                }
             }
         }
-        // weakly-referenced struct/union can reset OrderState to NotOrdered
-        if self.get_order_state(id) == OrderState::Ordering {
-            self.set_order_state(id, OrderState::Ordered);
-        }
-        Ok(())
+        Ok(false)
     }
 
     fn emit_type_fwds(&mut self, id: u32, cont_id: u32, is_def: bool) -> BtfResult<()> {
