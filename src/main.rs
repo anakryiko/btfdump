@@ -41,6 +41,8 @@ enum Cmd {
         file: std::path::PathBuf,
         #[structopt(short = "f", long = "format", default_value = "human")]
         format: DumpFormat,
+        #[structopt(short = "n", long = "name", default_value = "")]
+        name: String,
         #[structopt(short = "v", long = "verbose")]
         verbose: bool,
     },
@@ -53,6 +55,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         Cmd::Dump {
             file,
             format,
+            name,
             verbose,
         } => {
             let file = std::fs::File::open(&file)?;
@@ -70,7 +73,18 @@ fn main() -> Result<(), Box<dyn Error>> {
                 DumpFormat::JsonPretty => {}
                 DumpFormat::C => {
                     let mut dumper = c_dumper::CDumper::new(&btf, verbose);
-                    dumper.dump_types()?;
+                    if !name.is_empty() {
+                        dumper.dump_types(|bt: &btf::BtfType| match bt {
+                            btf::BtfType::Struct(t) => t.name == name,
+                            btf::BtfType::Union(t) => t.name == name,
+                            btf::BtfType::Enum(t) => t.name == name,
+                            btf::BtfType::Fwd(t) => t.name == name,
+                            btf::BtfType::Typedef(t) => t.name == name,
+                            _ => false,
+                        })?;
+                    } else {
+                        dumper.dump_types(|_| true)?;
+                    }
                 }
             }
         }

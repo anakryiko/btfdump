@@ -65,14 +65,17 @@ impl<'a> CDumper<'a> {
         dumper
     }
 
-    pub fn dump_types(&mut self) -> BtfResult<()> {
+    pub fn dump_types<F>(&mut self, filter: F) -> BtfResult<()>
+    where
+        F: Fn(&BtfType) -> bool,
+    {
         let mut order = Vec::new();
         for id in 0..self.btf.type_cnt() {
-            if self.is_named_def(id) {
+            let bt = self.btf.type_by_id(id);
+            if self.is_named_def(id) && filter(bt) {
                 if self.verbose {
-                    eprintln!("ORDERING id: {}, type: {}", id, self.btf.type_by_id(id));
+                    eprintln!("ORDERING id: {}, type: {}", id, bt);
                 }
-                self.cache_name(id);
                 self.order_type(id, false, &mut order)?;
             }
         }
@@ -94,19 +97,6 @@ impl<'a> CDumper<'a> {
                 self.emit_type_def(id)?;
                 if self.verbose {
                     println!("DEF id: {}, type: {}", id, self.btf.type_by_id(id));
-                }
-            }
-        }
-        // ensure we emit definitions that are never embedded (i.e., named and referenced by ptr)
-        for id in 0..self.btf.type_cnt() {
-            if self.is_named_def(id) {
-                self.emit_type_fwds(id, id, true)?;
-                if self.verbose {
-                    println!("FWDS2 id: {}, type: {}", id, self.btf.type_by_id(id));
-                }
-                self.emit_type_def(id)?;
-                if self.verbose {
-                    println!("DEF2 id: {}, type: {}", id, self.btf.type_by_id(id));
                 }
             }
         }
@@ -206,6 +196,7 @@ impl<'a> CDumper<'a> {
     }
 
     fn emit_type_fwds(&mut self, id: u32, cont_id: u32, is_def: bool) -> BtfResult<()> {
+        self.cache_name(id);
         match self.get_emit_state(id) {
             EmitState::NotEmitted => {}
             EmitState::Emitting => match self.btf.type_by_id(id) {
@@ -361,6 +352,7 @@ impl<'a> CDumper<'a> {
         if self.verbose {
             println!("EMIT_TYPE_DEF2 id:{}", id);
         }
+        self.cache_name(id);
         match self.btf.type_by_id(id) {
             BtfType::Struct(t) if !t.name.is_empty() => {
                 self.emit_struct_def(t, self.resolve_name(id), 0);
