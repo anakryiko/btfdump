@@ -285,7 +285,7 @@ impl<'a> CDumper<'a> {
                     for m in &t.members {
                         self.emit_type_fwds(m.type_id, cont_id, false)?;
                     }
-                } else {
+                } else if !self.get_fwd_emitted(id) && id != cont_id {
                     if self.verbose {
                         print!("BBB ");
                     }
@@ -302,7 +302,7 @@ impl<'a> CDumper<'a> {
                     for m in &t.members {
                         self.emit_type_fwds(m.type_id, cont_id, false)?;
                     }
-                } else {
+                } else if !self.get_fwd_emitted(id) && id != cont_id {
                     println!("union {};\n", self.resolve_name(id));
                     self.set_fwd_emitted(id, true);
                 }
@@ -321,7 +321,8 @@ impl<'a> CDumper<'a> {
             }
             BtfType::Typedef(t) => {
                 self.emit_type_fwds(t.type_id, id, false)?;
-                if !is_def {
+                // XXX: just emit definition directly
+                if !is_def && !self.get_fwd_emitted(id) {
                     // emit typedef right now, if someone depends on it "weakly" (though pointer)
                     self.emit_typedef_def(t, self.resolve_name(id), 0);
                     println!(";\n");
