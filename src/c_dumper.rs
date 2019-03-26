@@ -201,7 +201,8 @@ impl<'a> CDumper<'a> {
                 return Ok(true);
             }
             BtfType::Typedef(t) => {
-                if self.order_type(t.type_id, has_ptr, order)? {
+                let is_strong = self.order_type(t.type_id, has_ptr, order)?;
+                if !has_ptr || is_strong {
                     order.push(id);
                     self.set_order_state(id, OrderState::Ordered);
                     // report this was strong link
@@ -213,6 +214,16 @@ impl<'a> CDumper<'a> {
     }
 
     fn emit_type_fwds(&mut self, id: u32, cont_id: u32, is_def: bool) -> BtfResult<()> {
+        if self.verbose {
+            println!(
+                "EMIT_TYPE_FWDS id: {}, cont_id: {}, is_def: {}, state: {:?}, type: {}",
+                id,
+                cont_id,
+                is_def,
+                self.get_emit_state(id),
+                self.btf.type_by_id(id)
+            );
+        }
         self.cache_name(id);
         match self.get_emit_state(id) {
             EmitState::NotEmitted => {}
@@ -271,7 +282,6 @@ impl<'a> CDumper<'a> {
             },
             EmitState::Emitted => return Ok(()),
         }
-        self.set_emit_state(id, EmitState::Emitting);
         match self.btf.type_by_id(id) {
             BtfType::Func(_) | BtfType::Var(_) | BtfType::Datasec(_) => {}
             BtfType::Void | BtfType::Int(_) => {}
@@ -287,11 +297,16 @@ impl<'a> CDumper<'a> {
                 }
             }
             BtfType::Struct(t) => {
+                self.set_emit_state(id, EmitState::Emitting);
                 if is_def || t.name.is_empty() {
                     // top-level struct definition or embedded anonymous struct, ensure all field
                     // types have their fwds declared
                     for m in &t.members {
-                        self.emit_type_fwds(m.type_id, cont_id, false)?;
+                        self.emit_type_fwds(
+                            m.type_id,
+                            if t.name.is_empty() { cont_id } else { id },
+                            false,
+                        )?;
                     }
                 } else if !self.get_fwd_emitted(id) && id != cont_id {
                     if self.verbose {
@@ -304,11 +319,16 @@ impl<'a> CDumper<'a> {
                 self.set_emit_state(id, EmitState::NotEmitted);
             }
             BtfType::Union(t) => {
+                self.set_emit_state(id, EmitState::Emitting);
                 if is_def || t.name.is_empty() {
                     // top-level union definition or embedded anonymous union, ensure all field
                     // types have their fwds declared
                     for m in &t.members {
-                        self.emit_type_fwds(m.type_id, cont_id, false)?;
+                        self.emit_type_fwds(
+                            m.type_id,
+                            if t.name.is_empty() { cont_id } else { id },
+                            false,
+                        )?;
                     }
                 } else if !self.get_fwd_emitted(id) && id != cont_id {
                     println!("union {};\n", self.resolve_name(id));
@@ -318,30 +338,33 @@ impl<'a> CDumper<'a> {
                 self.set_emit_state(id, EmitState::NotEmitted);
             }
             BtfType::Enum(t) => {
+                self.set_emit_state(id, EmitState::Emitting);
                 if !t.name.is_empty() {
                     self.emit_enum_def(t, id, self.resolve_name(id), 0);
                     println!(";\n");
                 }
+                self.set_emit_state(id, EmitState::Emitted);
             }
             BtfType::Fwd(_) => {
+                self.set_emit_state(id, EmitState::Emitting);
                 self.emit_type_decl(id, "", 0);
                 println!(";\n");
+                self.set_emit_state(id, EmitState::Emitted);
             }
             BtfType::Typedef(t) => {
+                self.set_emit_state(id, EmitState::Emitting);
                 self.emit_type_fwds(t.type_id, id, false)?;
-                // XXX: just emit definition directly
-                if !is_def && !self.get_fwd_emitted(id) {
+                if !self.get_fwd_emitted(id) {
+                    if self.verbose {
+                        print!("BBB ");
+                    }
                     // emit typedef right now, if someone depends on it "weakly" (though pointer)
                     self.emit_typedef_def(t, self.resolve_name(id), 0);
                     println!(";\n");
-                } else {
-                    self.set_emit_state(id, EmitState::NotEmitted);
+                    self.set_fwd_emitted(id, true);
                 }
+                self.set_emit_state(id, EmitState::Emitted);
             }
-        }
-        // don't override EmitState::FwdEmitted
-        if self.get_emit_state(id) == EmitState::Emitting {
-            self.set_emit_state(id, EmitState::Emitted);
         }
         Ok(())
     }
@@ -388,8 +411,13 @@ impl<'a> CDumper<'a> {
                 println!(";\n");
             }
             BtfType::Typedef(t) if !t.name.is_empty() => {
-                self.emit_typedef_def(t, self.resolve_name(id), 0);
-                println!(";\n");
+                if !self.get_fwd_emitted(id) {
+                    if self.verbose {
+                        print!("CCC ");
+                    }
+                    self.emit_typedef_def(t, self.resolve_name(id), 0);
+                    println!(";\n");
+                }
             }
             _ => {
                 return btf_error(format!(
