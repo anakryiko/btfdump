@@ -1,11 +1,12 @@
 use std::error::Error;
 
 use memmap;
+use regex::Regex;
 use structopt::StructOpt;
 
 use btfdump::btf;
 use btfdump::c_dumper;
-use btfdump::BtfError;
+use btfdump::{BtfError, BtfResult};
 
 #[derive(Debug)]
 enum DumpFormat {
@@ -41,7 +42,7 @@ enum Cmd {
         file: std::path::PathBuf,
         #[structopt(short = "f", long = "format", default_value = "human")]
         format: DumpFormat,
-        #[structopt(short = "n", long = "name", default_value = "")]
+        #[structopt(short = "n", long = "name", default_value = "", help = "Name regex")]
         name: String,
         #[structopt(short = "v", long = "verbose")]
         verbose: bool,
@@ -62,32 +63,41 @@ fn main() -> Result<(), Box<dyn Error>> {
             let file = unsafe { memmap::Mmap::map(&file) }?;
             let file = object::ElfFile::parse(&*file)?;
             let btf = btf::Btf::load(file)?;
-
+            let filter = create_name_filter(&name)?;
             match format {
                 DumpFormat::Human => {
                     for (i, t) in btf.types().iter().enumerate() {
-                        println!("#{}: {}", i, t);
+                        if filter(t) {
+                            println!("#{}: {}", i, t);
+                        }
                     }
                 }
-                DumpFormat::Json => {}
-                DumpFormat::JsonPretty => {}
+                DumpFormat::Json => panic!("JSON output is not yet supported!"),
+                DumpFormat::JsonPretty => panic!("JSON output is not yet supported!"),
                 DumpFormat::C => {
                     let mut dumper = c_dumper::CDumper::new(&btf, verbose);
-                    if !name.is_empty() {
-                        dumper.dump_types(|bt: &btf::BtfType| match bt {
-                            btf::BtfType::Struct(t) => t.name == name,
-                            btf::BtfType::Union(t) => t.name == name,
-                            btf::BtfType::Enum(t) => t.name == name,
-                            btf::BtfType::Fwd(t) => t.name == name,
-                            btf::BtfType::Typedef(t) => t.name == name,
-                            _ => false,
-                        })?;
-                    } else {
-                        dumper.dump_types(|_| true)?;
-                    }
+                    dumper.dump_types(filter)?;
                 }
             }
         }
     }
     Ok(())
+}
+
+fn create_name_filter<'a, 'b>(name: &'a str) -> BtfResult<Box<Fn(&'b btf::BtfType) -> bool>> {
+    if name.is_empty() {
+        Ok(Box::new(|_: &btf::BtfType| true))
+    } else {
+        let name_regex = Regex::new(name)?;
+        Ok(Box::new(move |bt: &'b btf::BtfType| -> bool {
+            match bt {
+                btf::BtfType::Struct(t) => name_regex.is_match(&t.name),
+                btf::BtfType::Union(t) => name_regex.is_match(&t.name),
+                btf::BtfType::Enum(t) => name_regex.is_match(&t.name),
+                btf::BtfType::Fwd(t) => name_regex.is_match(&t.name),
+                btf::BtfType::Typedef(t) => name_regex.is_match(&t.name),
+                _ => false,
+            }
+        }))
+    }
 }

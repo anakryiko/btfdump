@@ -68,10 +68,7 @@ impl<'a> CDumper<'a> {
         dumper
     }
 
-    pub fn dump_types<F>(&mut self, filter: F) -> BtfResult<()>
-    where
-        F: Fn(&BtfType) -> bool,
-    {
+    pub fn dump_types(&mut self, filter: Box<Fn(&'a BtfType) -> bool>) -> BtfResult<()> {
         let mut order = Vec::new();
         for id in 0..self.btf.type_cnt() {
             let bt = self.btf.type_by_id(id);
