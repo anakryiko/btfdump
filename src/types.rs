@@ -103,7 +103,8 @@ struct btf_datasec_var {
     pub size: u32,
 }
 
-pub const ANON_NAME: &'static str = "<anon>";
+const EMPTY: &'static str = "";
+const ANON_NAME: &'static str = "<anon>";
 
 fn disp_name(s: &str) -> &str {
     if s == "" {
@@ -132,18 +133,57 @@ impl fmt::Display for BtfIntEncoding {
     }
 }
 
-#[derive(Debug, PartialEq)]
-pub enum BtfFwdKind {
-    Struct,
-    Union,
+#[derive(Debug)]
+pub struct BtfInt {
+    pub name: String,
+    pub bits: u32,
+    pub offset: u32,
+    pub encoding: BtfIntEncoding,
 }
 
-impl fmt::Display for BtfFwdKind {
+impl fmt::Display for BtfInt {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            BtfFwdKind::Struct => write!(f, "struct"),
-            BtfFwdKind::Union => write!(f, "union"),
+        write!(
+            f,
+            "<{}> '{}' bits:{} off:{}",
+            "INT",
+            disp_name(&self.name),
+            self.bits,
+            self.offset
+        )?;
+        match self.encoding {
+            BtfIntEncoding::None => (),
+            _ => write!(f, " enc:{}", self.encoding)?,
         }
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub struct BtfPtr {
+    pub type_id: u32,
+}
+
+impl fmt::Display for BtfPtr {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "<{}> --> [{}]", "PTR", self.type_id)
+    }
+}
+
+#[derive(Debug)]
+pub struct BtfArray {
+    pub nelems: u32,
+    pub idx_type_id: u32,
+    pub val_type_id: u32,
+}
+
+impl fmt::Display for BtfArray {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "<{}> n:{} idx-->[{}] val-->[{}]",
+            "ARRAY", self.nelems, self.idx_type_id, self.val_type_id
+        )
     }
 }
 
@@ -166,6 +206,54 @@ impl fmt::Display for BtfMember {
 }
 
 #[derive(Debug)]
+pub struct BtfStruct {
+    pub name: String,
+    pub sz: u32,
+    pub members: Vec<BtfMember>,
+}
+
+impl fmt::Display for BtfStruct {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "<{}> '{}' sz:{} n:{}",
+            "STRUCT",
+            disp_name(&self.name),
+            self.sz,
+            self.members.len()
+        )?;
+        for i in 0..self.members.len() {
+            write!(f, "\n\t#{:02} {}", i, self.members[i])?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub struct BtfUnion {
+    pub name: String,
+    pub sz: u32,
+    pub members: Vec<BtfMember>,
+}
+
+impl fmt::Display for BtfUnion {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "<{}> '{}' sz:{} n:{}",
+            "UNION",
+            disp_name(&self.name),
+            self.sz,
+            self.members.len()
+        )?;
+        for i in 0..self.members.len() {
+            write!(f, "\n\t#{:02} {}", i, self.members[i])?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
 pub struct BtfEnumValue {
     pub name: String,
     pub value: i32,
@@ -174,6 +262,132 @@ pub struct BtfEnumValue {
 impl fmt::Display for BtfEnumValue {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} = {}", disp_name(&self.name), self.value)
+    }
+}
+
+#[derive(Debug)]
+pub struct BtfEnum {
+    pub name: String,
+    pub sz_bits: u32,
+    pub values: Vec<BtfEnumValue>,
+}
+
+impl fmt::Display for BtfEnum {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "<{}> '{}' sz:{} n:{}",
+            "ENUM",
+            disp_name(&self.name),
+            self.sz_bits,
+            self.values.len()
+        )?;
+        for i in 0..self.values.len() {
+            write!(f, "\n\t#{:02} {}", i, self.values[i])?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum BtfFwdKind {
+    Struct,
+    Union,
+}
+
+impl fmt::Display for BtfFwdKind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            BtfFwdKind::Struct => write!(f, "struct"),
+            BtfFwdKind::Union => write!(f, "union"),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct BtfFwd {
+    pub name: String,
+    pub kind: BtfFwdKind,
+}
+
+impl fmt::Display for BtfFwd {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "<{}> '{}' kind:{}",
+            "FWD",
+            disp_name(&self.name),
+            self.kind
+        )
+    }
+}
+
+#[derive(Debug)]
+pub struct BtfTypedef {
+    pub name: String,
+    pub type_id: u32,
+}
+
+impl fmt::Display for BtfTypedef {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "<{}> '{}' --> [{}]",
+            "TYPEDEF",
+            disp_name(&self.name),
+            self.type_id
+        )
+    }
+}
+
+#[derive(Debug)]
+pub struct BtfVolatile {
+    pub type_id: u32,
+}
+
+impl fmt::Display for BtfVolatile {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "<{}> --> [{}]", "VOLATILE", self.type_id)
+    }
+}
+
+#[derive(Debug)]
+pub struct BtfConst {
+    pub type_id: u32,
+}
+
+impl fmt::Display for BtfConst {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "<{}> --> [{}]", "CONST", self.type_id)
+    }
+}
+
+#[derive(Debug)]
+pub struct BtfRestrict {
+    pub type_id: u32,
+}
+
+impl fmt::Display for BtfRestrict {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "<{}> --> [{}]", "RESTRICT", self.type_id)
+    }
+}
+
+#[derive(Debug)]
+pub struct BtfFunc {
+    pub name: String,
+    pub proto_type_id: u32,
+}
+
+impl fmt::Display for BtfFunc {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "<{}> '{}' --> [{}]",
+            "FUNC",
+            disp_name(&self.name),
+            self.proto_type_id
+        )
     }
 }
 
@@ -190,6 +404,28 @@ impl fmt::Display for BtfFuncParam {
 }
 
 #[derive(Debug)]
+pub struct BtfFuncProto {
+    pub res_type_id: u32,
+    pub params: Vec<BtfFuncParam>,
+}
+
+impl fmt::Display for BtfFuncProto {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "<{}> r-->[{}] n:{}",
+            "FUNC_PROTO",
+            self.res_type_id,
+            self.params.len()
+        )?;
+        for i in 0..self.params.len() {
+            write!(f, "\n\t#{:02} {}", i, self.params[i])?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
 pub enum BtfVarKind {
     Static,
     GlobalAlloc,
@@ -201,6 +437,26 @@ impl fmt::Display for BtfVarKind {
             BtfVarKind::Static => write!(f, "static"),
             BtfVarKind::GlobalAlloc => write!(f, "global-alloc"),
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct BtfVar {
+    pub name: String,
+    pub type_id: u32,
+    pub kind: BtfVarKind,
+}
+
+impl fmt::Display for BtfVar {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "<{}> '{}' kind:{} --> [{}]",
+            "VAR",
+            disp_name(&self.name),
+            self.kind,
+            self.type_id
+        )
     }
 }
 
@@ -222,97 +478,27 @@ impl fmt::Display for BtfDatasecVar {
 }
 
 #[derive(Debug)]
-pub struct BtfInt {
-    pub name: String,
-    pub bits: u32,
-    pub offset: u32,
-    pub encoding: BtfIntEncoding,
-}
-
-#[derive(Debug)]
-pub struct BtfPtr {
-    pub type_id: u32,
-}
-
-#[derive(Debug)]
-pub struct BtfArray {
-    pub nelems: u32,
-    pub idx_type_id: u32,
-    pub val_type_id: u32,
-}
-
-#[derive(Debug)]
-pub struct BtfStruct {
-    pub name: String,
-    pub sz: u32,
-    pub members: Vec<BtfMember>,
-}
-
-#[derive(Debug)]
-pub struct BtfUnion {
-    pub name: String,
-    pub sz: u32,
-    pub members: Vec<BtfMember>,
-}
-
-#[derive(Debug)]
-pub struct BtfEnum {
-    pub name: String,
-    pub sz_bits: u32,
-    pub values: Vec<BtfEnumValue>,
-}
-
-#[derive(Debug)]
-pub struct BtfFwd {
-    pub name: String,
-    pub kind: BtfFwdKind,
-}
-
-#[derive(Debug)]
-pub struct BtfTypedef {
-    pub name: String,
-    pub type_id: u32,
-}
-
-#[derive(Debug)]
-pub struct BtfVolatile {
-    pub type_id: u32,
-}
-
-#[derive(Debug)]
-pub struct BtfConst {
-    pub type_id: u32,
-}
-
-#[derive(Debug)]
-pub struct BtfRestrict {
-    pub type_id: u32,
-}
-
-#[derive(Debug)]
-pub struct BtfFunc {
-    pub name: String,
-    pub proto_type_id: u32,
-}
-
-#[derive(Debug)]
-pub struct BtfFuncProto {
-    pub res_type_id: u32,
-    pub params: Vec<BtfFuncParam>,
-}
-
-#[derive(Debug)]
-pub struct BtfVar {
-    pub name: String,
-    pub type_id: u32,
-    pub kind: BtfVarKind,
-}
-
-#[derive(Debug)]
 pub struct BtfDatasec {
     pub name: String,
     pub sz: u32,
     pub vars: Vec<BtfDatasecVar>,
+}
+
+impl fmt::Display for BtfDatasec {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "<{}> '{}' sz:{} n:{}",
+            "DATASEC",
+            disp_name(&self.name),
+            self.sz,
+            self.vars.len()
+        )?;
+        for i in 0..self.vars.len() {
+            write!(f, "\n\t#{:02} {}", i, self.vars[i])?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -339,122 +525,114 @@ impl fmt::Display for BtfType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             BtfType::Void => write!(f, "<{}>", "VOID"),
-            BtfType::Int(t) => {
-                write!(
-                    f,
-                    "<{}> '{}' bits:{} off:{}",
-                    "INT",
-                    disp_name(&t.name),
-                    t.bits,
-                    t.offset
-                )?;
-                match t.encoding {
-                    BtfIntEncoding::None => (),
-                    _ => write!(f, " enc:{}", t.encoding)?,
-                }
-                Ok(())
-            }
-            BtfType::Ptr(t) => write!(f, "<{}> --> [{}]", "PTR", t.type_id),
-            BtfType::Array(t) => write!(
-                f,
-                "<{}> n:{} idx-->[{}] val-->[{}]",
-                "ARRAY", t.nelems, t.idx_type_id, t.val_type_id
-            ),
-            BtfType::Struct(t) => {
-                write!(
-                    f,
-                    "<{}> '{}' sz:{} n:{}",
-                    "STRUCT",
-                    disp_name(&t.name),
-                    t.sz,
-                    t.members.len()
-                )?;
-                for i in 0..t.members.len() {
-                    write!(f, "\n\t#{:02} {}", i, t.members[i])?;
-                }
-                Ok(())
-            }
-            BtfType::Union(t) => {
-                write!(
-                    f,
-                    "<{}> '{}' sz:{} n:{}",
-                    "UNION",
-                    disp_name(&t.name),
-                    t.sz,
-                    t.members.len()
-                )?;
-                for i in 0..t.members.len() {
-                    write!(f, "\n\t#{:02} {}", i, t.members[i])?;
-                }
-                Ok(())
-            }
-            BtfType::Enum(t) => {
-                write!(
-                    f,
-                    "<{}> '{}' sz:{} n:{}",
-                    "ENUM",
-                    disp_name(&t.name),
-                    t.sz_bits,
-                    t.values.len()
-                )?;
-                for i in 0..t.values.len() {
-                    write!(f, "\n\t#{:02} {}", i, t.values[i])?;
-                }
-                Ok(())
-            }
-            BtfType::Fwd(t) => write!(f, "<{}> '{}' kind:{}", "FWD", disp_name(&t.name), t.kind),
-            BtfType::Typedef(t) => write!(
-                f,
-                "<{}> '{}' --> [{}]",
-                "TYPEDEF",
-                disp_name(&t.name),
-                t.type_id
-            ),
-            BtfType::Volatile(t) => write!(f, "<{}> --> [{}]", "VOLATILE", t.type_id),
-            BtfType::Const(t) => write!(f, "<{}> --> [{}]", "CONST", t.type_id),
-            BtfType::Restrict(t) => write!(f, "<{}> --> [{}]", "RESTRICT", t.type_id),
-            BtfType::Func(t) => write!(
-                f,
-                "<{}> '{}' --> [{}]",
-                "FUNC",
-                disp_name(&t.name),
-                t.proto_type_id
-            ),
-            BtfType::FuncProto(t) => {
-                write!(
-                    f,
-                    "<{}> r-->[{}] n:{}",
-                    "FUNC_PROTO",
-                    t.res_type_id,
-                    t.params.len()
-                )?;
-                for i in 0..t.params.len() {
-                    write!(f, "\n\t#{:02} {}", i, t.params[i])?;
-                }
-                Ok(())
-            }
-            BtfType::Var(t) => write!(
-                f,
-                "<{}> '{}' kind:{} --> [{}]",
-                "VAR",
-                disp_name(&t.name),
-                t.kind,
-                t.type_id
-            ),
-            BtfType::Datasec(t) => {
-                write!(
-                    f,
-                    "<{}> '{}' sz:{} n:{}",
-                    "DATASEC",
-                    disp_name(&t.name),
-                    t.sz,
-                    t.vars.len()
-                )?;
-                for i in 0..t.vars.len() {
-                    write!(f, "\n\t#{:02} {}", i, t.vars[i])?;
-                }
-                Ok(())
-            }
+            BtfType::Int(t) => t.fmt(f),
+            BtfType::Ptr(t) => t.fmt(f),
+            BtfType::Array(t) => t.fmt(f),
+            BtfType::Struct(t) => t.fmt(f),
+            BtfType::Union(t) => t.fmt(f),
+            BtfType::Enum(t) => t.fmt(f),
+            BtfType::Fwd(t) => t.fmt(f),
+            BtfType::Typedef(t) => t.fmt(f),
+            BtfType::Volatile(t) => t.fmt(f),
+            BtfType::Const(t) => t.fmt(f),
+            BtfType::Restrict(t) => t.fmt(f),
+            BtfType::Func(t) => t.fmt(f),
+            BtfType::FuncProto(t) => t.fmt(f),
+            BtfType::Var(t) => t.fmt(f),
+            BtfType::Datasec(t) => t.fmt(f),
+        }
+    }
+}
+
+impl BtfType {
+    pub fn kind(&self) -> BtfKind {
+        match self {
+            BtfType::Void => BtfKind::Void,
+            BtfType::Int(_) => BtfKind::Int,
+            BtfType::Ptr(_) => BtfKind::Ptr,
+            BtfType::Array(_) => BtfKind::Array,
+            BtfType::Struct(_) => BtfKind::Struct,
+            BtfType::Union(_) => BtfKind::Union,
+            BtfType::Enum(_) => BtfKind::Enum,
+            BtfType::Fwd(_) => BtfKind::Fwd,
+            BtfType::Typedef(_) => BtfKind::Typedef,
+            BtfType::Volatile(_) => BtfKind::Volatile,
+            BtfType::Const(_) => BtfKind::Const,
+            BtfType::Restrict(_) => BtfKind::Restrict,
+            BtfType::Func(_) => BtfKind::Func,
+            BtfType::FuncProto(_) => BtfKind::FuncProto,
+            BtfType::Var(_) => BtfKind::Var,
+            BtfType::Datasec(_) => BtfKind::Datasec,
+        }
+    }
+
+    pub fn name(&self) -> &str {
+        match self {
+            BtfType::Void => EMPTY,
+            BtfType::Int(t) => &t.name,
+            BtfType::Ptr(_) => EMPTY,
+            BtfType::Array(_) => EMPTY,
+            BtfType::Struct(t) => &t.name,
+            BtfType::Union(t) => &t.name,
+            BtfType::Enum(t) => &t.name,
+            BtfType::Fwd(t) => &t.name,
+            BtfType::Typedef(t) => &t.name,
+            BtfType::Volatile(_) => EMPTY,
+            BtfType::Const(_) => EMPTY,
+            BtfType::Restrict(_) => EMPTY,
+            BtfType::Func(t) => &t.name,
+            BtfType::FuncProto(_) => EMPTY,
+            BtfType::Var(t) => &t.name,
+            BtfType::Datasec(t) => &t.name,
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash)]
+pub enum BtfKind {
+    Void,
+    Int,
+    Ptr,
+    Array,
+    Struct,
+    Union,
+    Enum,
+    Fwd,
+    Typedef,
+    Volatile,
+    Const,
+    Restrict,
+    Func,
+    FuncProto,
+    Var,
+    Datasec,
+}
+
+impl std::str::FromStr for BtfKind {
+    type Err = BtfError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "void" => Ok(BtfKind::Void),
+            "int" | "i" => Ok(BtfKind::Int),
+            "ptr" | "p" => Ok(BtfKind::Ptr),
+            "array" | "arr" | "a" => Ok(BtfKind::Array),
+            "struct" | "s" => Ok(BtfKind::Struct),
+            "union" | "u" => Ok(BtfKind::Union),
+            "enum" | "e" => Ok(BtfKind::Enum),
+            "fwd" => Ok(BtfKind::Fwd),
+            "typedef" | "t" => Ok(BtfKind::Typedef),
+            "volatile" => Ok(BtfKind::Volatile),
+            "const" => Ok(BtfKind::Const),
+            "restrict" => Ok(BtfKind::Restrict),
+            "func_proto" | "funcproto" | "fnproto" | "fp" => Ok(BtfKind::FuncProto),
+            "func" | "fn" => Ok(BtfKind::Func),
+            "var" | "v" => Ok(BtfKind::Var),
+            "datasec" => Ok(BtfKind::Datasec),
+            _ => Err(BtfError::new_owned(format!(
+                "unrecognized btf kind: '{}'",
+                s
+            ))),
         }
     }
 }
