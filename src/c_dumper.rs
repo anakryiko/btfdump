@@ -42,6 +42,7 @@ enum NamedKind {
     Composite,
     Typedef,
     Func,
+    EnumValue,
 }
 
 pub struct CDumper<'a> {
@@ -49,6 +50,7 @@ pub struct CDumper<'a> {
     verbose: bool,
     state: Vec<TypeState>,
     names: HashMap<(NamedKind, &'a str), u32>,
+    enum_vals: HashMap<(u32, u32), String>,
 }
 
 impl<'a> CDumper<'a> {
@@ -58,6 +60,7 @@ impl<'a> CDumper<'a> {
             verbose: verbose,
             state: Vec::new(),
             names: HashMap::new(),
+            enum_vals: HashMap::new(),
         };
         dumper
             .state
@@ -316,7 +319,7 @@ impl<'a> CDumper<'a> {
             }
             BtfType::Enum(t) => {
                 if !t.name.is_empty() {
-                    self.emit_enum_def(t, self.resolve_name(id), 0);
+                    self.emit_enum_def(t, id, self.resolve_name(id), 0);
                     println!(";\n");
                 }
             }
@@ -377,7 +380,7 @@ impl<'a> CDumper<'a> {
                 println!(";\n");
             }
             BtfType::Enum(t) if !t.name.is_empty() => {
-                self.emit_enum_def(t, self.resolve_name(id), 0);
+                self.emit_enum_def(t, id, self.resolve_name(id), 0);
                 println!(";\n");
             }
             BtfType::Fwd(t) if !t.name.is_empty() => {
@@ -475,14 +478,21 @@ impl<'a> CDumper<'a> {
         print!("{}}}", pfx(lvl));
     }
 
-    fn emit_enum_def(&self, t: &BtfEnum, name: &str, lvl: usize) {
+    fn emit_enum_def(&self, t: &BtfEnum, id: u32, name: &str, lvl: usize) {
         if t.values.is_empty() {
             // enum fwd
             print!("enum{}{}", sep(&name), name);
         } else {
             print!("enum{}{} {{", sep(&name), name);
+            let mut idx = 0;
             for v in &t.values {
-                print!("\n{}{} = {},", pfx(lvl + 1), v.name, v.value);
+                print!(
+                    "\n{}{} = {},",
+                    pfx(lvl + 1),
+                    self.resolve_enum_val_name(id, idx),
+                    v.value
+                );
+                idx += 1;
             }
             print!("\n{}}}", pfx(lvl));
         }
@@ -572,7 +582,7 @@ impl<'a> CDumper<'a> {
                 BtfType::Enum(t) => {
                     self.emit_non_ptr_mods(&mut chain);
                     if t.name.is_empty() {
-                        self.emit_enum_def(t, "", lvl); // inline anonymous enum
+                        self.emit_enum_def(t, id, "", lvl); // inline anonymous enum
                     } else {
                         print!("enum {}", self.resolve_name(id));
                     }
@@ -707,7 +717,14 @@ impl<'a> CDumper<'a> {
         match self.btf.type_by_id(id) {
             BtfType::Struct(t) => self.cache_kind_name(NamedKind::Composite, id, &t.name),
             BtfType::Union(t) => self.cache_kind_name(NamedKind::Composite, id, &t.name),
-            BtfType::Enum(t) => self.cache_kind_name(NamedKind::Composite, id, &t.name),
+            BtfType::Enum(t) => {
+                self.cache_kind_name(NamedKind::Composite, id, &t.name);
+                let mut idx = 0;
+                for v in &t.values {
+                    self.cache_enum_val_name(id, &t.name, idx, &v.name);
+                    idx += 1;
+                }
+            }
             BtfType::Fwd(t) => self.cache_kind_name(NamedKind::Composite, id, &t.name),
             BtfType::Typedef(t) => self.cache_kind_name(NamedKind::Typedef, id, &t.name),
             BtfType::Func(t) => self.cache_kind_name(NamedKind::Func, id, &t.name),
@@ -722,7 +739,7 @@ impl<'a> CDumper<'a> {
         let s = &mut self.state[id as usize];
         if s.name.is_empty() {
             let version = self.names.entry((kind, name)).or_insert(0);
-            *version = *version + 1;
+            *version += 1;
             if *version == 1 {
                 s.name = name.to_string();
             } else {
@@ -733,6 +750,29 @@ impl<'a> CDumper<'a> {
 
     fn resolve_name(&self, id: u32) -> &str {
         &self.state[id as usize].name
+    }
+
+    fn cache_enum_val_name(&mut self, id: u32, enum_name: &'a str, val_idx: u32, name: &'a str) {
+        let cached = self.enum_vals.entry((id, val_idx)).or_default();
+        if !cached.is_empty() {
+            return;
+        }
+        let version = self.names.entry((NamedKind::EnumValue, name)).or_insert(0);
+        *version += 1;
+        if *version == 1 {
+            *cached = name.to_string();
+        } else if !enum_name.is_empty() {
+            *cached = format!("{}__{}", name, enum_name);
+        } else {
+            *cached = format!("{}__{}", name, version);
+        }
+    }
+
+    fn resolve_enum_val_name(&self, id: u32, val_idx: u32) -> &str {
+        &self
+            .enum_vals
+            .get(&(id, val_idx))
+            .expect("enum value not cached")
     }
 }
 
