@@ -4,9 +4,9 @@ use memmap;
 use regex::Regex;
 use structopt::StructOpt;
 
-use btfdump::btf;
-use btfdump::c_dumper;
-use btfdump::{BtfError, BtfResult};
+use btf::c_dumper;
+use btf::types::*;
+use btf::{BtfError, BtfResult};
 
 #[derive(Debug)]
 enum DumpFormat {
@@ -62,7 +62,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             let file = std::fs::File::open(&file)?;
             let file = unsafe { memmap::Mmap::map(&file) }?;
             let file = object::ElfFile::parse(&*file)?;
-            let btf = btf::Btf::load(file)?;
+            let btf = Btf::load(file)?;
             let filter = create_name_filter(&name)?;
             match format {
                 DumpFormat::Human => {
@@ -84,18 +84,18 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn create_name_filter<'a, 'b>(name: &'a str) -> BtfResult<Box<Fn(&'b btf::BtfType) -> bool>> {
+fn create_name_filter<'a, 'b>(name: &'a str) -> BtfResult<Box<Fn(&'b BtfType) -> bool>> {
     if name.is_empty() {
-        Ok(Box::new(|_: &btf::BtfType| true))
+        Ok(Box::new(|_: &'b BtfType| true))
     } else {
         let name_regex = Regex::new(name)?;
-        Ok(Box::new(move |bt: &'b btf::BtfType| -> bool {
+        Ok(Box::new(move |bt: &'b BtfType| -> bool {
             match bt {
-                btf::BtfType::Struct(t) => name_regex.is_match(&t.name),
-                btf::BtfType::Union(t) => name_regex.is_match(&t.name),
-                btf::BtfType::Enum(t) => name_regex.is_match(&t.name),
-                btf::BtfType::Fwd(t) => name_regex.is_match(&t.name),
-                btf::BtfType::Typedef(t) => name_regex.is_match(&t.name),
+                BtfType::Struct(t) => name_regex.is_match(&t.name),
+                BtfType::Union(t) => name_regex.is_match(&t.name),
+                BtfType::Enum(t) => name_regex.is_match(&t.name),
+                BtfType::Fwd(t) => name_regex.is_match(&t.name),
+                BtfType::Typedef(t) => name_regex.is_match(&t.name),
                 _ => false,
             }
         }))

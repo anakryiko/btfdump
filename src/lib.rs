@@ -1,8 +1,8 @@
 use std::error::Error;
 use std::fmt;
 
-pub mod btf;
 pub mod c_dumper;
+pub mod types;
 
 #[derive(Debug)]
 pub struct BtfError {

@@ -3,6 +3,15 @@ name = "btfdump"
 version = "0.0.1"
 authors = ["Andrii Nakryiko <andriin@fb.com>"]
 edition = "2018"
+publish = false
+
+[lib]
+name = "btf"
+path = "src/lib.rs"
+
+[[bin]]
+name = "btf"
+path = "src/main.rs"
 
 [dependencies]
 structopt = "0.2.10"

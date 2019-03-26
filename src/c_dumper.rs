@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::btf::*;
+use crate::types::*;
 use crate::{btf_error, BtfResult};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
