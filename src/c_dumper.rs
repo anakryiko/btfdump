@@ -1,5 +1,8 @@
 use std::collections::HashMap;
 
+use lazy_static::lazy_static;
+use regex::RegexSet;
+
 use crate::types::*;
 use crate::{btf_error, BtfResult};
 
@@ -235,7 +238,9 @@ impl<'a> CDumper<'a> {
                         if self.verbose {
                             print!("AAA ");
                         }
-                        println!("struct {};\n", self.resolve_name(id));
+                        if self.emit_struct_fwd(t, self.resolve_name(id)) {
+                            println!(";\n");
+                        }
                         self.set_fwd_emitted(id, true);
                         return Ok(());
                     } else {
@@ -253,7 +258,9 @@ impl<'a> CDumper<'a> {
                         return Ok(());
                     }
                     if !t.name.is_empty() {
-                        println!("union {};\n", self.resolve_name(id));
+                        if self.emit_union_fwd(t, self.resolve_name(id)) {
+                            println!(";\n");
+                        }
                         self.set_fwd_emitted(id, true);
                         return Ok(());
                     } else {
@@ -309,7 +316,9 @@ impl<'a> CDumper<'a> {
                     if self.verbose {
                         print!("BBB ");
                     }
-                    println!("struct {};\n", self.resolve_name(id));
+                    if self.emit_struct_fwd(t, self.resolve_name(id)) {
+                        println!(";\n");
+                    }
                     self.set_fwd_emitted(id, true);
                 }
                 // XXX: just emit definition directly
@@ -328,7 +337,9 @@ impl<'a> CDumper<'a> {
                         )?;
                     }
                 } else if !self.get_fwd_emitted(id) && id != cont_id {
-                    println!("union {};\n", self.resolve_name(id));
+                    if self.emit_union_fwd(t, self.resolve_name(id)) {
+                        println!(";\n");
+                    }
                     self.set_fwd_emitted(id, true);
                 }
                 // XXX: just emit definition directly
@@ -477,7 +488,18 @@ impl<'a> CDumper<'a> {
         self.state[id as usize].emit_state = state;
     }
 
+    fn emit_struct_fwd(&self, t: &BtfStruct, name: &str) -> bool {
+        if NAMES_BLACKLIST.is_match(&t.name) {
+            return false;
+        }
+        print!("struct {}", name);
+        return true;
+    }
+
     fn emit_struct_def(&self, t: &BtfStruct, name: &str, lvl: usize) {
+        if NAMES_BLACKLIST.is_match(&t.name) {
+            return;
+        }
         print!("struct{}{} {{", sep(name), name);
         for m in &t.members {
             print!("\n{}", pfx(lvl + 1));
@@ -490,7 +512,18 @@ impl<'a> CDumper<'a> {
         print!("{}}}", pfx(lvl));
     }
 
+    fn emit_union_fwd(&self, t: &BtfUnion, name: &str) -> bool {
+        if NAMES_BLACKLIST.is_match(&t.name) {
+            return false;
+        }
+        print!("union {}", name);
+        return true;
+    }
+
     fn emit_union_def(&self, t: &BtfUnion, name: &str, lvl: usize) {
+        if NAMES_BLACKLIST.is_match(&t.name) {
+            return;
+        }
         print!("union{}{} {{", sep(&name), name);
         for m in &t.members {
             print!("\n{}", pfx(lvl + 1));
@@ -504,6 +537,9 @@ impl<'a> CDumper<'a> {
     }
 
     fn emit_enum_def(&self, t: &BtfEnum, id: u32, name: &str, lvl: usize) {
+        if NAMES_BLACKLIST.is_match(&t.name) {
+            return;
+        }
         if t.values.is_empty() {
             // enum fwd
             print!("enum{}{}", sep(&name), name);
@@ -524,6 +560,9 @@ impl<'a> CDumper<'a> {
     }
 
     fn emit_fwd_def(&self, t: &BtfFwd, name: &str) {
+        if NAMES_BLACKLIST.is_match(&t.name) {
+            return;
+        }
         match t.kind {
             BtfFwdKind::Struct => print!("struct {}", name),
             BtfFwdKind::Union => print!("union {}", name),
@@ -531,6 +570,9 @@ impl<'a> CDumper<'a> {
     }
 
     fn emit_typedef_def(&self, t: &BtfTypedef, name: &str, lvl: usize) {
+        if NAMES_BLACKLIST.is_match(&t.name) {
+            return;
+        }
         print!("typedef ");
         self.emit_type_decl(t.type_id, name, lvl);
     }
@@ -581,31 +623,31 @@ impl<'a> CDumper<'a> {
         while let Some(id) = chain.pop() {
             match self.btf.type_by_id(id) {
                 BtfType::Void => {
-                    self.emit_non_ptr_mods(&mut chain);
+                    self.emit_mods(&mut chain);
                     print!("void");
                 }
                 BtfType::Int(t) => {
-                    self.emit_non_ptr_mods(&mut chain);
+                    self.emit_mods(&mut chain);
                     print!("{}", t.name);
                 }
                 BtfType::Struct(t) => {
-                    self.emit_non_ptr_mods(&mut chain);
+                    self.emit_mods(&mut chain);
                     if t.name.is_empty() {
                         self.emit_struct_def(t, "", lvl); // inline anonymous struct
                     } else {
-                        print!("struct {}", self.resolve_name(id));
+                        self.emit_struct_fwd(t, self.resolve_name(id));
                     }
                 }
                 BtfType::Union(t) => {
-                    self.emit_non_ptr_mods(&mut chain);
+                    self.emit_mods(&mut chain);
                     if t.name.is_empty() {
                         self.emit_union_def(t, "", lvl); // inline anonymous union
                     } else {
-                        print!("union {}", self.resolve_name(id));
+                        self.emit_union_fwd(t, self.resolve_name(id));
                     }
                 }
                 BtfType::Enum(t) => {
-                    self.emit_non_ptr_mods(&mut chain);
+                    self.emit_mods(&mut chain);
                     if t.name.is_empty() {
                         self.emit_enum_def(t, id, "", lvl); // inline anonymous enum
                     } else {
@@ -613,11 +655,11 @@ impl<'a> CDumper<'a> {
                     }
                 }
                 BtfType::Fwd(t) => {
-                    self.emit_non_ptr_mods(&mut chain);
+                    self.emit_mods(&mut chain);
                     self.emit_fwd_def(t, self.resolve_name(id));
                 }
                 BtfType::Typedef(_) => {
-                    self.emit_non_ptr_mods(&mut chain);
+                    self.emit_mods(&mut chain);
                     print!("{}", self.resolve_name(id));
                 }
                 BtfType::Ptr(_) => {
@@ -662,7 +704,7 @@ impl<'a> CDumper<'a> {
                     return;
                 }
                 BtfType::FuncProto(t) => {
-                    self.emit_non_ptr_mods(&mut chain);
+                    self.emit_mods(&mut chain);
                     if chain.is_empty() {
                         self.emit_name(fname, last_was_ptr);
                     } else {
@@ -718,7 +760,7 @@ impl<'a> CDumper<'a> {
         }
     }
 
-    fn emit_non_ptr_mods(&self, chain: &mut Vec<u32>) {
+    fn emit_mods(&self, chain: &mut Vec<u32>) {
         while let Some(id) = chain.pop() {
             match self.btf.type_by_id(id) {
                 BtfType::Volatile(_) => {
@@ -799,6 +841,11 @@ impl<'a> CDumper<'a> {
             .get(&(id, val_idx))
             .expect("enum value not cached")
     }
+}
+
+lazy_static! {
+    static ref NAMES_BLACKLIST: RegexSet =
+        RegexSet::new(&["__builtin_va_list"]).expect("invalid blacklist regexes");
 }
 
 const EMPTY: &str = "";
