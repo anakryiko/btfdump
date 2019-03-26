@@ -34,18 +34,40 @@ impl std::str::FromStr for DumpFormat {
 }
 
 #[derive(StructOpt)]
-#[structopt(name = "btfdump", about = "BTF introspection tool")]
+struct QueryArgs {
+    #[structopt(short = "n", long = "name")]
+    /// Name regex
+    name: Option<String>,
+    #[structopt(long = "id", parse(try_from_str), raw(use_delimiter = "true"))]
+    /// Type IDs to include
+    ids: Vec<u32>,
+}
+
+#[derive(StructOpt)]
+#[structopt(name = "btfdump")]
+/// BTF introspection and manipulation tool
 enum Cmd {
-    #[structopt(name = "dump", about = "Dump BTF data in various formats")]
+    #[structopt(name = "dump")]
+    /// Query and pretty-print matching BTF data
     Dump {
         #[structopt(parse(from_os_str))]
         file: std::path::PathBuf,
-        #[structopt(short = "f", long = "format", default_value = "human")]
+        #[structopt(
+            short = "f",
+            long = "format",
+            default_value = "human",
+            raw(
+                possible_values = r#"&["human", "h", "c", "json", "j", "json-pretty", "jp"]"#,
+                next_line_help = "true"
+            )
+        )]
+        /// Output format
         format: DumpFormat,
-        #[structopt(short = "n", long = "name", default_value = "", help = "Name regex")]
-        name: String,
         #[structopt(short = "v", long = "verbose")]
+        /// Output verbose log
         verbose: bool,
+        #[structopt(flatten)]
+        query: QueryArgs,
     },
 }
 
@@ -56,18 +78,18 @@ fn main() -> Result<(), Box<dyn Error>> {
         Cmd::Dump {
             file,
             format,
-            name,
             verbose,
+            query,
         } => {
             let file = std::fs::File::open(&file)?;
             let file = unsafe { memmap::Mmap::map(&file) }?;
             let file = object::ElfFile::parse(&*file)?;
             let btf = Btf::load(file)?;
-            let filter = create_name_filter(&name)?;
+            let filter = create_query_filter(query)?;
             match format {
                 DumpFormat::Human => {
                     for (i, t) in btf.types().iter().enumerate() {
-                        if filter(t) {
+                        if filter(i as u32, t) {
                             println!("#{}: {}", i, t);
                         }
                     }
@@ -84,12 +106,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn create_name_filter<'a, 'b>(name: &'a str) -> BtfResult<Box<Fn(&'b BtfType) -> bool>> {
-    if name.is_empty() {
-        Ok(Box::new(|_: &'b BtfType| true))
-    } else {
-        let name_regex = Regex::new(name)?;
-        Ok(Box::new(move |bt: &'b BtfType| -> bool {
+fn create_query_filter(q: QueryArgs) -> BtfResult<Box<dyn Fn(u32, &BtfType) -> bool>> {
+    let mut filters: Vec<Box<dyn Fn(u32, &BtfType) -> bool>> = Vec::new();
+    if let Some(name) = q.name {
+        let name_regex = Regex::new(&name)?;
+        filters.push(Box::new(move |_id: u32, bt: &BtfType| -> bool {
             match bt {
                 BtfType::Struct(t) => name_regex.is_match(&t.name),
                 BtfType::Union(t) => name_regex.is_match(&t.name),
@@ -98,6 +119,24 @@ fn create_name_filter<'a, 'b>(name: &'a str) -> BtfResult<Box<Fn(&'b BtfType) ->
                 BtfType::Typedef(t) => name_regex.is_match(&t.name),
                 _ => false,
             }
+        }));
+    }
+    if !q.ids.is_empty() {
+        let ids = q.ids;
+        filters.push(Box::new(move |id: u32, _bt: &BtfType| -> bool {
+            ids.contains(&id)
+        }));
+    }
+    if !filters.is_empty() {
+        Ok(Box::new(move |id: u32, bt: &BtfType| -> bool {
+            for f in &filters {
+                if f(id, bt) {
+                    return true;
+                }
+            }
+            return false;
         }))
+    } else {
+        Ok(Box::new(|_: u32, _: &BtfType| true))
     }
 }

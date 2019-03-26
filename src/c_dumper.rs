@@ -71,11 +71,11 @@ impl<'a> CDumper<'a> {
         dumper
     }
 
-    pub fn dump_types(&mut self, filter: Box<Fn(&'a BtfType) -> bool>) -> BtfResult<()> {
+    pub fn dump_types(&mut self, filter: Box<Fn(u32, &'a BtfType) -> bool>) -> BtfResult<()> {
         let mut order = Vec::new();
         for id in 0..self.btf.type_cnt() {
             let bt = self.btf.type_by_id(id);
-            if self.is_named_def(id) && filter(bt) {
+            if self.is_named_def(id) && filter(id, bt) {
                 if self.verbose {
                     eprintln!("ORDERING id: {}, type: {}", id, bt);
                 }
