@@ -14,7 +14,7 @@ name = "btf"
 path = "src/main.rs"
 
 [dependencies]
-structopt = "0.2.10"
+structopt = "0.2"
 goblin = "0.0.20"
 object = "0.11.0"
 memmap = "0.7.0"
@@ -22,3 +22,7 @@ scroll = "0.9.2"
 scroll_derive = "0.9.5"
 regex = "1"
 lazy_static = "1"
+
+[dependencies.clap]
+version = "2.32"
+features = ["wrap_help"]
