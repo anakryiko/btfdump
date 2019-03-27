@@ -36,8 +36,16 @@ impl std::str::FromStr for DumpFormat {
 #[derive(StructOpt)]
 struct QueryArgs {
     #[structopt(short = "n", long = "name")]
-    /// Name regex
+    /// Regex of type names to include
     name: Option<String>,
+    #[structopt(
+        short = "t",
+        long = "type",
+        parse(try_from_str),
+        raw(use_delimiter = "true")
+    )]
+    /// BTF type kinds to include
+    kinds: Vec<BtfKind>,
     #[structopt(long = "id", parse(try_from_str), raw(use_delimiter = "true"))]
     /// Type IDs to include
     ids: Vec<u32>,
@@ -108,23 +116,22 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 fn create_query_filter(q: QueryArgs) -> BtfResult<Box<dyn Fn(u32, &BtfType) -> bool>> {
     let mut filters: Vec<Box<dyn Fn(u32, &BtfType) -> bool>> = Vec::new();
-    if let Some(name) = q.name {
-        let name_regex = Regex::new(&name)?;
+    if !q.kinds.is_empty() {
+        let kinds = q.kinds;
         filters.push(Box::new(move |_id: u32, bt: &BtfType| -> bool {
-            match bt {
-                BtfType::Struct(t) => name_regex.is_match(&t.name),
-                BtfType::Union(t) => name_regex.is_match(&t.name),
-                BtfType::Enum(t) => name_regex.is_match(&t.name),
-                BtfType::Fwd(t) => name_regex.is_match(&t.name),
-                BtfType::Typedef(t) => name_regex.is_match(&t.name),
-                _ => false,
-            }
+            kinds.contains(&bt.kind())
         }));
     }
     if !q.ids.is_empty() {
         let ids = q.ids;
         filters.push(Box::new(move |id: u32, _bt: &BtfType| -> bool {
             ids.contains(&id)
+        }));
+    }
+    if let Some(name) = q.name {
+        let name_regex = Regex::new(&name)?;
+        filters.push(Box::new(move |_id: u32, bt: &BtfType| -> bool {
+            name_regex.is_match(bt.name())
         }));
     }
     if !filters.is_empty() {
