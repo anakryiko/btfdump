@@ -487,8 +487,7 @@ impl<'a> CDumper<'a> {
         if NAMES_BLACKLIST.is_match(&t.name) {
             return false;
         }
-        let name = self.resolve_name(id);
-        print!("struct {}", name);
+        print!("struct {}", self.resolve_name(id));
         return true;
     }
 
@@ -496,25 +495,92 @@ impl<'a> CDumper<'a> {
         if NAMES_BLACKLIST.is_match(&t.name) {
             return;
         }
+        let packed = self.is_struct_packed(id, t);
         let name = self.resolve_name(id);
         print!("struct{}{} {{", sep(&name), name);
+        let mut offset = 0;
         for m in &t.members {
+            self.emit_bit_padding(offset, m, packed, lvl + 1);
+
             print!("\n{}", pfx(lvl + 1));
             self.emit_type_decl(m.type_id, &m.name, lvl + 1);
+
+            if m.bit_size == 0 {
+                offset = m.bit_offset + self.btf.get_size_of(m.type_id) * 8;
+            } else {
+                print!(": {}", m.bit_size);
+                offset = m.bit_offset + m.bit_size as u32;
+            }
             print!(";");
         }
         if !t.members.is_empty() {
             print!("\n");
         }
         print!("{}}}", pfx(lvl));
+        if packed {
+            print!(" __attribute__((packed))");
+        }
+    }
+
+    fn emit_bit_padding(&self, offset: u32, m: &BtfMember, packed: bool, lvl: usize) {
+        if offset >= m.bit_offset {
+            return;
+        }
+        let mut bit_diff = m.bit_offset - offset;
+        let align = if packed {
+            1
+        } else {
+            self.btf.get_align_of(m.type_id)
+        };
+        if m.bit_size == 0 && bit_diff < align * 8 {
+            // natural padding will take care of a gap
+            return;
+        }
+        let ptr_sz_bits = self.btf.ptr_sz() * 8;
+        while bit_diff > 0 {
+            let (pad_type, pad_bits) = if ptr_sz_bits > 32 && bit_diff > 32 {
+                ("long", CDumper::chip_away_bits(bit_diff, ptr_sz_bits))
+            } else if bit_diff > 16 {
+                ("int", CDumper::chip_away_bits(bit_diff, 32))
+            } else if bit_diff > 8 {
+                ("short", CDumper::chip_away_bits(bit_diff, 16))
+            } else {
+                ("char", CDumper::chip_away_bits(bit_diff, 8))
+            };
+            bit_diff -= pad_bits;
+            print!("\n{}{}: {};", pfx(lvl), pad_type, pad_bits);
+        }
+    }
+
+    fn chip_away_bits(total: u32, at_most: u32) -> u32 {
+        if total % at_most == 0 {
+            at_most
+        } else {
+            total % at_most
+        }
+    }
+
+    fn is_struct_packed(&self, id: u32, t: &BtfStruct) -> bool {
+        // size of a struct has to be a multiple of its alignment
+        if t.sz % self.btf.get_align_of(id) != 0 {
+            return true;
+        }
+        // all the non-bitfield fields have to be naturally aligned
+        for m in &t.members {
+            if m.bit_size == 0 && m.bit_offset % (self.btf.get_align_of(m.type_id) * 8) != 0 {
+                return true;
+            }
+        }
+        // even if original struct was marked as packed, we haven't detected any misalignment, so
+        // there is no effect of packedness for given struct
+        return false;
     }
 
     fn emit_union_fwd(&mut self, id: u32, t: &BtfUnion) -> bool {
         if NAMES_BLACKLIST.is_match(&t.name) {
             return false;
         }
-        let name = self.resolve_name(id);
-        print!("union {}", name);
+        print!("union {}", self.resolve_name(id));
         return true;
     }
 
@@ -527,6 +593,9 @@ impl<'a> CDumper<'a> {
         for m in &t.members {
             print!("\n{}", pfx(lvl + 1));
             self.emit_type_decl(m.type_id, &m.name, lvl + 1);
+            if m.bit_size > 0 {
+                print!(": {}", m.bit_size);
+            }
             print!(";");
         }
         if !t.members.is_empty() {
