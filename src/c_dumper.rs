@@ -45,7 +45,6 @@ enum NamedKind {
     Composite,
     Typedef,
     Func,
-    EnumValue,
 }
 
 pub struct CDumper<'a> {
@@ -53,7 +52,6 @@ pub struct CDumper<'a> {
     verbose: bool,
     state: Vec<TypeState>,
     names: HashMap<(NamedKind, &'a str), u32>,
-    enum_vals: HashMap<(u32, u32), String>,
 }
 
 impl<'a> CDumper<'a> {
@@ -63,7 +61,6 @@ impl<'a> CDumper<'a> {
             verbose: verbose,
             state: Vec::new(),
             names: HashMap::new(),
-            enum_vals: HashMap::new(),
         };
         dumper
             .state
@@ -224,7 +221,6 @@ impl<'a> CDumper<'a> {
                 self.btf.type_by_id(id)
             );
         }
-        self.cache_name(id);
         match self.get_emit_state(id) {
             EmitState::NotEmitted => {}
             EmitState::Emitting => match self.btf.type_by_id(id) {
@@ -238,7 +234,7 @@ impl<'a> CDumper<'a> {
                         if self.verbose {
                             print!("AAA ");
                         }
-                        if self.emit_struct_fwd(t, self.resolve_name(id)) {
+                        if self.emit_struct_fwd(id, t) {
                             println!(";\n");
                         }
                         self.set_fwd_emitted(id, true);
@@ -258,7 +254,7 @@ impl<'a> CDumper<'a> {
                         return Ok(());
                     }
                     if !t.name.is_empty() {
-                        if self.emit_union_fwd(t, self.resolve_name(id)) {
+                        if self.emit_union_fwd(id, t) {
                             println!(";\n");
                         }
                         self.set_fwd_emitted(id, true);
@@ -277,7 +273,7 @@ impl<'a> CDumper<'a> {
                     if self.get_fwd_emitted(id) {
                         return Ok(());
                     }
-                    self.emit_typedef_def(t, self.resolve_name(id), 0);
+                    self.emit_typedef_def(id, t, 0);
                     println!("\n");
                     self.set_fwd_emitted(id, true);
                     return Ok(());
@@ -316,7 +312,7 @@ impl<'a> CDumper<'a> {
                     if self.verbose {
                         print!("BBB ");
                     }
-                    if self.emit_struct_fwd(t, self.resolve_name(id)) {
+                    if self.emit_struct_fwd(id, t) {
                         println!(";\n");
                     }
                     self.set_fwd_emitted(id, true);
@@ -337,7 +333,7 @@ impl<'a> CDumper<'a> {
                         )?;
                     }
                 } else if !self.get_fwd_emitted(id) && id != cont_id {
-                    if self.emit_union_fwd(t, self.resolve_name(id)) {
+                    if self.emit_union_fwd(id, t) {
                         println!(";\n");
                     }
                     self.set_fwd_emitted(id, true);
@@ -348,7 +344,7 @@ impl<'a> CDumper<'a> {
             BtfType::Enum(t) => {
                 self.set_emit_state(id, EmitState::Emitting);
                 if !t.name.is_empty() {
-                    self.emit_enum_def(t, id, self.resolve_name(id), 0);
+                    self.emit_enum_def(id, t, 0);
                     println!(";\n");
                 }
                 self.set_emit_state(id, EmitState::Emitted);
@@ -367,7 +363,7 @@ impl<'a> CDumper<'a> {
                         print!("BBB ");
                     }
                     // emit typedef right now, if someone depends on it "weakly" (though pointer)
-                    self.emit_typedef_def(t, self.resolve_name(id), 0);
+                    self.emit_typedef_def(id, t, 0);
                     println!(";\n");
                     self.set_fwd_emitted(id, true);
                 }
@@ -400,22 +396,21 @@ impl<'a> CDumper<'a> {
         if self.verbose {
             println!("EMIT_TYPE_DEF2 id:{}", id);
         }
-        self.cache_name(id);
         match self.btf.type_by_id(id) {
             BtfType::Struct(t) if !t.name.is_empty() => {
-                self.emit_struct_def(t, self.resolve_name(id), 0);
+                self.emit_struct_def(id, t, 0);
                 println!(";\n");
             }
             BtfType::Union(t) if !t.name.is_empty() => {
-                self.emit_union_def(t, self.resolve_name(id), 0);
+                self.emit_union_def(id, t, 0);
                 println!(";\n");
             }
             BtfType::Enum(t) if !t.name.is_empty() => {
-                self.emit_enum_def(t, id, self.resolve_name(id), 0);
+                self.emit_enum_def(id, t, 0);
                 println!(";\n");
             }
             BtfType::Fwd(t) if !t.name.is_empty() => {
-                self.emit_fwd_def(t, self.resolve_name(id));
+                self.emit_fwd_def(id, t);
                 println!(";\n");
             }
             BtfType::Typedef(t) if !t.name.is_empty() => {
@@ -423,7 +418,7 @@ impl<'a> CDumper<'a> {
                     if self.verbose {
                         print!("CCC ");
                     }
-                    self.emit_typedef_def(t, self.resolve_name(id), 0);
+                    self.emit_typedef_def(id, t, 0);
                     println!(";\n");
                 }
             }
@@ -488,19 +483,21 @@ impl<'a> CDumper<'a> {
         self.state[id as usize].emit_state = state;
     }
 
-    fn emit_struct_fwd(&self, t: &BtfStruct, name: &str) -> bool {
+    fn emit_struct_fwd(&mut self, id: u32, t: &BtfStruct) -> bool {
         if NAMES_BLACKLIST.is_match(&t.name) {
             return false;
         }
+        let name = self.resolve_name(id);
         print!("struct {}", name);
         return true;
     }
 
-    fn emit_struct_def(&self, t: &BtfStruct, name: &str, lvl: usize) {
+    fn emit_struct_def(&mut self, id: u32, t: &BtfStruct, lvl: usize) {
         if NAMES_BLACKLIST.is_match(&t.name) {
             return;
         }
-        print!("struct{}{} {{", sep(name), name);
+        let name = self.resolve_name(id);
+        print!("struct{}{} {{", sep(&name), name);
         for m in &t.members {
             print!("\n{}", pfx(lvl + 1));
             self.emit_type_decl(m.type_id, &m.name, lvl + 1);
@@ -512,18 +509,20 @@ impl<'a> CDumper<'a> {
         print!("{}}}", pfx(lvl));
     }
 
-    fn emit_union_fwd(&self, t: &BtfUnion, name: &str) -> bool {
+    fn emit_union_fwd(&mut self, id: u32, t: &BtfUnion) -> bool {
         if NAMES_BLACKLIST.is_match(&t.name) {
             return false;
         }
+        let name = self.resolve_name(id);
         print!("union {}", name);
         return true;
     }
 
-    fn emit_union_def(&self, t: &BtfUnion, name: &str, lvl: usize) {
+    fn emit_union_def(&mut self, id: u32, t: &BtfUnion, lvl: usize) {
         if NAMES_BLACKLIST.is_match(&t.name) {
             return;
         }
+        let name = self.resolve_name(id);
         print!("union{}{} {{", sep(&name), name);
         for m in &t.members {
             print!("\n{}", pfx(lvl + 1));
@@ -536,48 +535,45 @@ impl<'a> CDumper<'a> {
         print!("{}}}", pfx(lvl));
     }
 
-    fn emit_enum_def(&self, t: &BtfEnum, id: u32, name: &str, lvl: usize) {
+    fn emit_enum_def(&mut self, id: u32, t: &'a BtfEnum, lvl: usize) {
         if NAMES_BLACKLIST.is_match(&t.name) {
             return;
         }
+        let name = self.resolve_name(id);
         if t.values.is_empty() {
             // enum fwd
             print!("enum{}{}", sep(&name), name);
         } else {
             print!("enum{}{} {{", sep(&name), name);
-            let mut idx = 0;
             for v in &t.values {
-                print!(
-                    "\n{}{} = {},",
-                    pfx(lvl + 1),
-                    self.resolve_enum_val_name(id, idx),
-                    v.value
-                );
-                idx += 1;
+                let val_uniq_name = self.resolve_enum_val_name(id, t, &v.name);
+                print!("\n{}{} = {},", pfx(lvl + 1), &val_uniq_name, v.value);
             }
             print!("\n{}}}", pfx(lvl));
         }
     }
 
-    fn emit_fwd_def(&self, t: &BtfFwd, name: &str) {
+    fn emit_fwd_def(&mut self, id: u32, t: &BtfFwd) {
         if NAMES_BLACKLIST.is_match(&t.name) {
             return;
         }
+        let name = self.resolve_name(id);
         match t.kind {
             BtfFwdKind::Struct => print!("struct {}", name),
             BtfFwdKind::Union => print!("union {}", name),
         }
     }
 
-    fn emit_typedef_def(&self, t: &BtfTypedef, name: &str, lvl: usize) {
+    fn emit_typedef_def(&mut self, id: u32, t: &BtfTypedef, lvl: usize) {
         if NAMES_BLACKLIST.is_match(&t.name) {
             return;
         }
+        let name = self.resolve_name(id);
         print!("typedef ");
-        self.emit_type_decl(t.type_id, name, lvl);
+        self.emit_type_decl(t.type_id, &name, lvl);
     }
 
-    fn emit_type_decl(&self, mut id: u32, fname: &str, lvl: usize) {
+    fn emit_type_decl(&mut self, mut id: u32, fname: &str, lvl: usize) {
         // This algorithm emits correct C syntax for any type definition.
         //
         // For most types it's trivial, but there are few quirky type declaration  cases worth
@@ -615,7 +611,7 @@ impl<'a> CDumper<'a> {
         self.emit_type_chain(chain, fname, lvl);
     }
 
-    fn emit_type_chain(&self, mut chain: Vec<u32>, fname: &str, lvl: usize) {
+    fn emit_type_chain(&mut self, mut chain: Vec<u32>, fname: &str, lvl: usize) {
         // default to true, in case we have single ptr in a chain. E.g., in ptr -> func_proto case.
         // func_proto will start a new emit_type_chain with just ptr, which should be emitted as
         // (*) or (*<fname>), so we don't want to preprend space for that last ptr.
@@ -633,34 +629,36 @@ impl<'a> CDumper<'a> {
                 BtfType::Struct(t) => {
                     self.emit_mods(&mut chain);
                     if t.name.is_empty() {
-                        self.emit_struct_def(t, "", lvl); // inline anonymous struct
+                        self.emit_struct_def(id, t, lvl); // inline anonymous struct
                     } else {
-                        self.emit_struct_fwd(t, self.resolve_name(id));
+                        self.emit_struct_fwd(id, t);
                     }
                 }
                 BtfType::Union(t) => {
                     self.emit_mods(&mut chain);
                     if t.name.is_empty() {
-                        self.emit_union_def(t, "", lvl); // inline anonymous union
+                        self.emit_union_def(id, t, lvl); // inline anonymous union
                     } else {
-                        self.emit_union_fwd(t, self.resolve_name(id));
+                        self.emit_union_fwd(id, t);
                     }
                 }
                 BtfType::Enum(t) => {
                     self.emit_mods(&mut chain);
                     if t.name.is_empty() {
-                        self.emit_enum_def(t, id, "", lvl); // inline anonymous enum
+                        self.emit_enum_def(id, t, lvl); // inline anonymous enum
                     } else {
-                        print!("enum {}", self.resolve_name(id));
+                        let uniq_name = self.resolve_name(id);
+                        print!("enum {}", &uniq_name);
                     }
                 }
                 BtfType::Fwd(t) => {
                     self.emit_mods(&mut chain);
-                    self.emit_fwd_def(t, self.resolve_name(id));
+                    self.emit_fwd_def(id, t);
                 }
                 BtfType::Typedef(_) => {
                     self.emit_mods(&mut chain);
-                    print!("{}", self.resolve_name(id));
+                    let uniq_name = self.resolve_name(id);
+                    print!("{}", &uniq_name);
                 }
                 BtfType::Ptr(_) => {
                     if last_was_ptr {
@@ -780,28 +778,21 @@ impl<'a> CDumper<'a> {
         }
     }
 
-    fn cache_name(&mut self, id: u32) {
+    fn resolve_name(&mut self, id: u32) -> String {
         match self.btf.type_by_id(id) {
-            BtfType::Struct(t) => self.cache_kind_name(NamedKind::Composite, id, &t.name),
-            BtfType::Union(t) => self.cache_kind_name(NamedKind::Composite, id, &t.name),
-            BtfType::Enum(t) => {
-                self.cache_kind_name(NamedKind::Composite, id, &t.name);
-                let mut idx = 0;
-                for v in &t.values {
-                    self.cache_enum_val_name(id, &t.name, idx, &v.name);
-                    idx += 1;
-                }
-            }
-            BtfType::Fwd(t) => self.cache_kind_name(NamedKind::Composite, id, &t.name),
-            BtfType::Typedef(t) => self.cache_kind_name(NamedKind::Typedef, id, &t.name),
-            BtfType::Func(t) => self.cache_kind_name(NamedKind::Func, id, &t.name),
-            _ => {}
+            BtfType::Struct(t) => self.resolve_kind_name(NamedKind::Composite, id, &t.name),
+            BtfType::Union(t) => self.resolve_kind_name(NamedKind::Composite, id, &t.name),
+            BtfType::Enum(t) => self.resolve_kind_name(NamedKind::Composite, id, &t.name),
+            BtfType::Fwd(t) => self.resolve_kind_name(NamedKind::Composite, id, &t.name),
+            BtfType::Typedef(t) => self.resolve_kind_name(NamedKind::Typedef, id, &t.name),
+            BtfType::Func(t) => self.resolve_kind_name(NamedKind::Func, id, &t.name),
+            _ => EMPTY.to_owned(),
         }
     }
 
-    fn cache_kind_name(&mut self, kind: NamedKind, id: u32, name: &'a str) {
+    fn resolve_kind_name(&mut self, kind: NamedKind, id: u32, name: &'a str) -> String {
         if name.is_empty() {
-            return;
+            return EMPTY.to_owned();
         }
         let s = &mut self.state[id as usize];
         if s.name.is_empty() {
@@ -813,33 +804,21 @@ impl<'a> CDumper<'a> {
                 s.name = format!("{}__{}", name, version);
             }
         }
+        s.name.clone()
     }
 
-    fn resolve_name(&self, id: u32) -> &str {
-        &self.state[id as usize].name
-    }
-
-    fn cache_enum_val_name(&mut self, id: u32, enum_name: &'a str, val_idx: u32, name: &'a str) {
-        let cached = self.enum_vals.entry((id, val_idx)).or_default();
-        if !cached.is_empty() {
-            return;
-        }
-        let version = self.names.entry((NamedKind::EnumValue, name)).or_insert(0);
+    fn resolve_enum_val_name(&mut self, id: u32, t: &BtfEnum, name: &'a str) -> String {
+        // enum values are in the same namespace as typedefs
+        let version = self.names.entry((NamedKind::Typedef, name)).or_insert(0);
         *version += 1;
         if *version == 1 {
-            *cached = name.to_string();
-        } else if !enum_name.is_empty() {
-            *cached = format!("{}__{}", name, enum_name);
+            name.to_string()
+        } else if !t.name.is_empty() {
+            let uniq_name = self.resolve_name(id);
+            format!("{}__{}", name, &uniq_name)
         } else {
-            *cached = format!("{}__{}", name, version);
+            format!("{}__{}", name, version)
         }
-    }
-
-    fn resolve_enum_val_name(&self, id: u32, val_idx: u32) -> &str {
-        &self
-            .enum_vals
-            .get(&(id, val_idx))
-            .expect("enum value not cached")
     }
 }
 
