@@ -1,3 +1,4 @@
+use std::cmp::{max, min};
 use std::ffi::CStr;
 use std::fmt;
 use std::mem::size_of;
@@ -652,9 +653,14 @@ pub struct Btf {
     hdr: BtfHeader,
     endian: scroll::Endian,
     types: Vec<BtfType>,
+    ptr_sz: u32,
 }
 
 impl Btf {
+    pub fn ptr_sz(&self) -> u32 {
+        self.ptr_sz
+    }
+
     pub fn types(&self) -> &Vec<BtfType> {
         &self.types
     }
@@ -665,6 +671,60 @@ impl Btf {
 
     pub fn type_cnt(&self) -> u32 {
         self.types.len() as u32
+    }
+
+    pub fn get_size_of(&self, type_id: u32) -> u32 {
+        match self.type_by_id(type_id) {
+            BtfType::Void => 0,
+            BtfType::Int(t) => (t.bits + 7) / 8,
+            BtfType::Volatile(t) => self.get_size_of(t.type_id),
+            BtfType::Const(t) => self.get_size_of(t.type_id),
+            BtfType::Restrict(t) => self.get_size_of(t.type_id),
+            BtfType::Ptr(_) => self.ptr_sz,
+            BtfType::Array(t) => t.nelems * self.get_size_of(t.val_type_id),
+            BtfType::FuncProto(_) => 0,
+            BtfType::Struct(t) => t.sz,
+            BtfType::Union(t) => t.sz,
+            BtfType::Enum(t) => (t.sz_bits + 7) / 8,
+            BtfType::Fwd(_) => 0,
+            BtfType::Typedef(t) => self.get_size_of(t.type_id),
+            BtfType::Func(_) => 0,
+            BtfType::Var(_) => 0,
+            BtfType::Datasec(t) => t.sz,
+        }
+    }
+
+    pub fn get_align_of(&self, type_id: u32) -> u32 {
+        match self.type_by_id(type_id) {
+            BtfType::Void => 0,
+            BtfType::Int(t) => min(self.ptr_sz, (t.bits + 7) / 8),
+            BtfType::Volatile(t) => self.get_align_of(t.type_id),
+            BtfType::Const(t) => self.get_align_of(t.type_id),
+            BtfType::Restrict(t) => self.get_align_of(t.type_id),
+            BtfType::Ptr(_) => self.ptr_sz,
+            BtfType::Array(t) => self.get_align_of(t.val_type_id),
+            BtfType::FuncProto(_) => 0,
+            BtfType::Struct(t) => {
+                let mut align = 1;
+                for m in &t.members {
+                    align = max(align, self.get_align_of(m.type_id));
+                }
+                align
+            }
+            BtfType::Union(t) => {
+                let mut align = 1;
+                for m in &t.members {
+                    align = max(align, self.get_align_of(m.type_id));
+                }
+                align
+            }
+            BtfType::Enum(t) => min(self.ptr_sz, (t.sz_bits + 7) / 8),
+            BtfType::Fwd(_) => 0,
+            BtfType::Typedef(t) => self.get_align_of(t.type_id),
+            BtfType::Func(_) => 0,
+            BtfType::Var(_) => 0,
+            BtfType::Datasec(_) => 0,
+        }
     }
 
     pub fn load<'data>(elf: object::ElfFile<'data>) -> BtfResult<Btf> {
@@ -700,6 +760,7 @@ impl Btf {
                 str_len: hdr.str_len as usize,
             },
             types: vec![BtfType::Void],
+            ptr_sz: if elf.elf().is_64 { 8 } else { 4 },
         };
 
         let type_off = size_of::<btf_header>() + btf.hdr.type_off;
