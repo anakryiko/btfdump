@@ -1,6 +1,7 @@
 use std::error::Error;
 
 use memmap;
+use object::Object;
 use regex::Regex;
 use structopt::StructOpt;
 
@@ -92,13 +93,32 @@ fn main() -> Result<(), Box<dyn Error>> {
             let file = std::fs::File::open(&file)?;
             let file = unsafe { memmap::Mmap::map(&file) }?;
             let file = object::ElfFile::parse(&*file)?;
-            let btf = Btf::load(file)?;
+            let btf = Btf::load(&file)?;
+            let btfext = if let Some(_) = file.section_by_name(BTF_EXT_ELF_SEC) {
+                Some(BtfExt::load(&file)?)
+            } else {
+                None
+            };
             let filter = create_query_filter(query)?;
             match format {
                 DumpFormat::Human => {
                     for (i, t) in btf.types().iter().enumerate() {
                         if filter(i as u32, t) {
                             println!("#{}: {}", i, t);
+                        }
+                    }
+                    if let Some(ext) = btfext {
+                        for (i, sec) in ext.func_secs().iter().enumerate() {
+                            println!("\nFunc section #{} '{}':", i, sec.name);
+                            for (j, rec) in sec.recs.iter().enumerate() {
+                                println!("#{}: {}", j, rec);
+                            }
+                        }
+                        for (i, sec) in ext.line_secs().iter().enumerate() {
+                            println!("\nLine section #{} '{}':", i, sec.name);
+                            for (j, rec) in sec.recs.iter().enumerate() {
+                                println!("#{}: {}", j, rec);
+                            }
                         }
                     }
                 }

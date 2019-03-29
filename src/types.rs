@@ -9,8 +9,11 @@ use scroll_derive::{IOread, IOwrite, Pread as DerivePread, Pwrite, SizeWith};
 
 use crate::{btf_error, BtfError, BtfResult};
 
-const BTF_MAGIC: u16 = 0xeB9F;
-const BTF_VERSION: u8 = 1;
+pub const BTF_ELF_SEC: &str = ".BTF";
+pub const BTF_EXT_ELF_SEC: &str = ".BTF.ext";
+
+pub const BTF_MAGIC: u16 = 0xeB9F;
+pub const BTF_VERSION: u8 = 1;
 
 //const BTF_MAX_TYPE: u32 = 0xffff;
 //const BTF_MAX_NAME_OFFSET: u32 = 0xffff;
@@ -19,35 +22,35 @@ const BTF_VERSION: u8 = 1;
 //const BTF_MAX_NR_TYPES: u32 = 0x7fffffff;
 //const BTF_MAX_STR_OFFSET: u32 = 0x7fffffff;
 
-//const BTF_KIND_UNKN: u32 = 0;
-const BTF_KIND_INT: u32 = 1;
-const BTF_KIND_PTR: u32 = 2;
-const BTF_KIND_ARRAY: u32 = 3;
-const BTF_KIND_STRUCT: u32 = 4;
-const BTF_KIND_UNION: u32 = 5;
-const BTF_KIND_ENUM: u32 = 6;
-const BTF_KIND_FWD: u32 = 7;
-const BTF_KIND_TYPEDEF: u32 = 8;
-const BTF_KIND_VOLATILE: u32 = 9;
-const BTF_KIND_CONST: u32 = 10;
-const BTF_KIND_RESTRICT: u32 = 11;
-const BTF_KIND_FUNC: u32 = 12;
-const BTF_KIND_FUNC_PROTO: u32 = 13;
-const BTF_KIND_VAR: u32 = 14;
-const BTF_KIND_DATASEC: u32 = 15;
-//const BTF_KIND_MAX: u32 = 15;
-//const NR_BTF_KINDS: u32 = BTF_KIND_MAX + 1;
+pub const BTF_KIND_UNKN: u32 = 0;
+pub const BTF_KIND_INT: u32 = 1;
+pub const BTF_KIND_PTR: u32 = 2;
+pub const BTF_KIND_ARRAY: u32 = 3;
+pub const BTF_KIND_STRUCT: u32 = 4;
+pub const BTF_KIND_UNION: u32 = 5;
+pub const BTF_KIND_ENUM: u32 = 6;
+pub const BTF_KIND_FWD: u32 = 7;
+pub const BTF_KIND_TYPEDEF: u32 = 8;
+pub const BTF_KIND_VOLATILE: u32 = 9;
+pub const BTF_KIND_CONST: u32 = 10;
+pub const BTF_KIND_RESTRICT: u32 = 11;
+pub const BTF_KIND_FUNC: u32 = 12;
+pub const BTF_KIND_FUNC_PROTO: u32 = 13;
+pub const BTF_KIND_VAR: u32 = 14;
+pub const BTF_KIND_DATASEC: u32 = 15;
+pub const BTF_KIND_MAX: u32 = 15;
+pub const NR_BTF_KINDS: u32 = BTF_KIND_MAX + 1;
 
-const BTF_INT_SIGNED: u32 = 0b001;
-const BTF_INT_CHAR: u32 = 0b010;
-const BTF_INT_BOOL: u32 = 0b100;
+pub const BTF_INT_SIGNED: u32 = 0b001;
+pub const BTF_INT_CHAR: u32 = 0b010;
+pub const BTF_INT_BOOL: u32 = 0b100;
 
-const BTF_VAR_STATIC: u32 = 0;
-const BTF_VAR_GLOBAL_ALLOCATED: u32 = 1;
+pub const BTF_VAR_STATIC: u32 = 0;
+pub const BTF_VAR_GLOBAL_ALLOCATED: u32 = 1;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, DerivePread, Pwrite, IOread, IOwrite, SizeWith)]
-struct btf_header {
+pub struct btf_header {
     pub magic: u16,
     pub version: u8,
     pub flags: u8,
@@ -60,7 +63,7 @@ struct btf_header {
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, DerivePread, Pwrite, IOread, IOwrite, SizeWith)]
-struct btf_type {
+pub struct btf_type {
     pub name_off: u32,
     pub info: u32,
     pub type_id: u32,
@@ -68,14 +71,14 @@ struct btf_type {
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, DerivePread, Pwrite, IOread, IOwrite, SizeWith)]
-struct btf_enum {
+pub struct btf_enum {
     pub name_off: u32,
     pub val: i32,
 }
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, DerivePread, Pwrite, IOread, IOwrite, SizeWith)]
-struct btf_array {
+pub struct btf_array {
     pub val_type_id: u32,
     pub idx_type_id: u32,
     pub nelems: u32,
@@ -83,7 +86,7 @@ struct btf_array {
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, DerivePread, Pwrite, IOread, IOwrite, SizeWith)]
-struct btf_member {
+pub struct btf_member {
     pub name_off: u32,
     pub type_id: u32,
     pub offset: u32,
@@ -91,17 +94,61 @@ struct btf_member {
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, DerivePread, Pwrite, IOread, IOwrite, SizeWith)]
-struct btf_param {
+pub struct btf_param {
     pub name_off: u32,
     pub type_id: u32,
 }
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, DerivePread, Pwrite, IOread, IOwrite, SizeWith)]
-struct btf_datasec_var {
+pub struct btf_datasec_var {
     pub type_id: u32,
     pub offset: u32,
     pub size: u32,
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, DerivePread, Pwrite, IOread, IOwrite, SizeWith)]
+pub struct btf_ext_header {
+    pub magic: u16,
+    pub version: u8,
+    pub flags: u8,
+    pub hdr_len: u32,
+    pub func_info_off: u32,
+    pub func_info_len: u32,
+    pub line_info_off: u32,
+    pub line_info_len: u32,
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, DerivePread, Pwrite, IOread, IOwrite, SizeWith)]
+pub struct btf_ext_info_sec {
+    pub sec_name_off: u32,
+    pub num_info: u32,
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, DerivePread, Pwrite, IOread, IOwrite, SizeWith)]
+pub struct btf_ext_func_info {
+    pub insn_off: u32,
+    pub type_id: u32,
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, DerivePread, Pwrite, IOread, IOwrite, SizeWith)]
+pub struct btf_ext_line_info {
+    pub insn_off: u32,
+    pub file_name_off: u32,
+    pub line_off: u32,
+    pub line_col: u32,
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, DerivePread, Pwrite, IOread, IOwrite, SizeWith)]
+pub struct btf_ext_offset_reloc {
+    pub insn_off: u32,
+    pub type_id: u32,
+    pub access_name_off: u32,
 }
 
 const EMPTY: &'static str = "";
@@ -727,14 +774,14 @@ impl Btf {
         }
     }
 
-    pub fn load<'data>(elf: object::ElfFile<'data>) -> BtfResult<Btf> {
+    pub fn load<'data>(elf: &object::ElfFile<'data>) -> BtfResult<Btf> {
         let endian = if elf.is_little_endian() {
             scroll::LE
         } else {
             scroll::BE
         };
         let btf_section = elf
-            .section_by_name(".BTF")
+            .section_by_name(BTF_ELF_SEC)
             .ok_or_else(|| Box::new(BtfError::new("No .BTF section found!")))?;
         let data = btf_section.data();
 
@@ -982,5 +1029,225 @@ impl Btf {
 
     fn get_kind(info: u32) -> bool {
         (info >> 31) == 1
+    }
+}
+
+#[derive(Debug)]
+struct BtfExtHeader {
+    pub flags: u8,
+    pub hdr_len: usize,
+    pub func_info_off: usize,
+    pub func_info_len: usize,
+    pub line_info_off: usize,
+    pub line_info_len: usize,
+}
+
+#[derive(Debug)]
+pub struct BtfExtSection<T> {
+    pub name: String,
+    pub recs: Vec<T>,
+}
+
+#[derive(Debug)]
+pub struct BtfExtFunc {
+    pub insn_off: u32,
+    pub type_id: u32,
+}
+
+impl fmt::Display for BtfExtFunc {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "insn {} --> [{}]", self.insn_off, self.type_id)
+    }
+}
+
+#[derive(Debug)]
+pub struct BtfExtLine {
+    pub insn_off: u32,
+    pub file_name: String,
+    pub src_line: String,
+    pub line_num: u32,
+    pub col_num: u32,
+}
+
+impl fmt::Display for BtfExtLine {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "insn {} --> {}:{} @ {}\n\t{}",
+            self.insn_off, self.line_num, self.col_num, self.file_name, self.src_line
+        )
+    }
+}
+
+#[derive(Debug)]
+pub struct BtfExt {
+    hdr: BtfExtHeader,
+    endian: scroll::Endian,
+    func_secs: Vec<BtfExtSection<BtfExtFunc>>,
+    line_secs: Vec<BtfExtSection<BtfExtLine>>,
+}
+
+impl BtfExt {
+    pub fn func_secs(&self) -> &[BtfExtSection<BtfExtFunc>] {
+        &self.func_secs
+    }
+
+    pub fn line_secs(&self) -> &[BtfExtSection<BtfExtLine>] {
+        &self.line_secs
+    }
+
+    pub fn load<'data>(elf: &object::ElfFile<'data>) -> BtfResult<BtfExt> {
+        let endian = if elf.is_little_endian() {
+            scroll::LE
+        } else {
+            scroll::BE
+        };
+        let btfext_section = elf
+            .section_by_name(BTF_EXT_ELF_SEC)
+            .ok_or_else(|| Box::new(BtfError::new("No .BTF.ext section found!")))?;
+        let data = btfext_section.data();
+
+        let hdr = data.pread_with::<btf_ext_header>(0, endian)?;
+        if hdr.magic != BTF_MAGIC {
+            return btf_error(format!("Invalid .BTF.ext magic: {}", hdr.magic));
+        }
+        if hdr.version != BTF_VERSION {
+            return btf_error(format!(
+                "Unsupported .BTF.ext version: {}, expect: {}",
+                hdr.version, BTF_VERSION
+            ));
+        }
+
+        let mut btfext = BtfExt {
+            endian: endian,
+            hdr: BtfExtHeader {
+                flags: hdr.flags,
+                hdr_len: hdr.hdr_len as usize,
+                func_info_off: hdr.func_info_off as usize,
+                func_info_len: hdr.func_info_len as usize,
+                line_info_off: hdr.line_info_off as usize,
+                line_info_len: hdr.line_info_len as usize,
+            },
+            func_secs: Vec::new(),
+            line_secs: Vec::new(),
+        };
+
+        let str_data = btfext.load_strs(elf)?;
+        let func_off = size_of::<btf_ext_header>() + btfext.hdr.func_info_off;
+        let func_data = &data[func_off..func_off + btfext.hdr.func_info_len];
+        btfext.func_secs = btfext.load_func_secs(func_data, str_data)?;
+        let line_off = size_of::<btf_ext_header>() + btfext.hdr.line_info_off;
+        let line_data = &data[line_off..line_off + btfext.hdr.line_info_len];
+        btfext.line_secs = btfext.load_line_secs(line_data, str_data)?;
+
+        Ok(btfext)
+    }
+
+    fn load_strs<'a>(&self, elf: &object::ElfFile<'a>) -> BtfResult<&'a [u8]> {
+        let btf_section = elf
+            .section_by_name(BTF_ELF_SEC)
+            .ok_or_else(|| Box::new(BtfError::new("No .BTF section found!")))?;
+        let data = match btf_section.data() {
+            std::borrow::Cow::Borrowed(x) => x,
+            _ => panic!("impossible"), // because we never overwrite data
+        };
+
+        let hdr = data.pread_with::<btf_header>(0, self.endian)?;
+        if hdr.magic != BTF_MAGIC {
+            return btf_error(format!("Invalid BTF magic: {}", hdr.magic));
+        }
+        if hdr.version != BTF_VERSION {
+            return btf_error(format!(
+                "Unsupported BTF version: {}, expect: {}",
+                hdr.version, BTF_VERSION
+            ));
+        }
+
+        let str_off = size_of::<btf_header>() + hdr.str_off as usize;
+        Ok(&data[str_off..str_off + hdr.str_len as usize])
+    }
+
+    fn load_func_secs(
+        &self,
+        mut data: &[u8],
+        strs: &[u8],
+    ) -> BtfResult<Vec<BtfExtSection<BtfExtFunc>>> {
+        let rec_sz = data.pread_with::<u32>(0, self.endian)?;
+        if rec_sz < size_of::<btf_ext_func_info>() as u32 {
+            return btf_error(format!(
+                "Too small func info record size: {}, expect at least: {}",
+                rec_sz,
+                size_of::<btf_ext_func_info>()
+            ));
+        }
+        data = &data[size_of::<u32>()..];
+        let mut secs = Vec::new();
+        while !data.is_empty() {
+            let sec_hdr = data.pread_with::<btf_ext_info_sec>(0, self.endian)?;
+            data = &data[size_of::<btf_ext_info_sec>()..];
+
+            let mut recs = Vec::new();
+            for i in 0..sec_hdr.num_info {
+                let off = (i * rec_sz) as usize;
+                let rec = data.pread_with::<btf_ext_func_info>(off, self.endian)?;
+                recs.push(BtfExtFunc {
+                    insn_off: rec.insn_off,
+                    type_id: rec.type_id,
+                });
+            }
+            secs.push(BtfExtSection::<BtfExtFunc> {
+                name: BtfExt::get_btf_str(strs, sec_hdr.sec_name_off)?,
+                recs: recs,
+            });
+
+            data = &data[(sec_hdr.num_info * rec_sz) as usize..];
+        }
+        Ok(secs)
+    }
+
+    fn load_line_secs(
+        &self,
+        mut data: &[u8],
+        strs: &[u8],
+    ) -> BtfResult<Vec<BtfExtSection<BtfExtLine>>> {
+        let rec_sz = data.pread_with::<u32>(0, self.endian)?;
+        if rec_sz < size_of::<btf_ext_line_info>() as u32 {
+            return btf_error(format!(
+                "Too small line info record size: {}, expect at least: {}",
+                rec_sz,
+                size_of::<btf_ext_line_info>()
+            ));
+        }
+        data = &data[size_of::<u32>()..];
+        let mut secs = Vec::new();
+        while !data.is_empty() {
+            let sec_hdr = data.pread_with::<btf_ext_info_sec>(0, self.endian)?;
+            data = &data[size_of::<btf_ext_info_sec>()..];
+
+            let mut recs = Vec::new();
+            for i in 0..sec_hdr.num_info {
+                let off = (i * rec_sz) as usize;
+                let rec = data.pread_with::<btf_ext_line_info>(off, self.endian)?;
+                recs.push(BtfExtLine {
+                    insn_off: rec.insn_off,
+                    file_name: BtfExt::get_btf_str(strs, rec.file_name_off)?,
+                    src_line: BtfExt::get_btf_str(strs, rec.line_off)?,
+                    line_num: rec.line_col >> 10,
+                    col_num: rec.line_col & 0x3ff,
+                });
+            }
+            secs.push(BtfExtSection::<BtfExtLine> {
+                name: BtfExt::get_btf_str(strs, sec_hdr.sec_name_off)?,
+                recs: recs,
+            });
+
+            data = &data[(sec_hdr.num_info * rec_sz) as usize..];
+        }
+        Ok(secs)
+    }
+
+    fn get_btf_str(strs: &[u8], off: u32) -> BtfResult<String> {
+        let c_str = unsafe { CStr::from_ptr(&strs[off as usize] as *const u8 as *const i8) };
+        Ok(c_str.to_str()?.to_owned())
     }
 }
