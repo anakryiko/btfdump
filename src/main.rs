@@ -94,7 +94,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             let file = unsafe { memmap::Mmap::map(&file) }?;
             let file = object::ElfFile::parse(&*file)?;
             let btf = Btf::load(&file)?;
-            let btfext = if let Some(_) = file.section_by_name(BTF_EXT_ELF_SEC) {
+            let btfext: Option<BtfExt> = if let Some(_) = file.section_by_name(BTF_EXT_ELF_SEC) {
                 Some(BtfExt::load(&file)?)
             } else {
                 None
@@ -116,6 +116,12 @@ fn main() -> Result<(), Box<dyn Error>> {
                         }
                         for (i, sec) in ext.line_secs().iter().enumerate() {
                             println!("\nLine section #{} '{}':", i, sec.name);
+                            for (j, rec) in sec.recs.iter().enumerate() {
+                                println!("#{}: {}", j, rec);
+                            }
+                        }
+                        for (i, sec) in ext.offset_reloc_secs().iter().enumerate() {
+                            println!("\nOffset reloc section #{} '{}':", i, sec.name);
                             for (j, rec) in sec.recs.iter().enumerate() {
                                 println!("#{}: {}", j, rec);
                             }
