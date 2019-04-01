@@ -710,10 +710,69 @@ impl std::str::FromStr for BtfKind {
 }
 
 #[derive(Debug)]
+pub struct BtfExtSection<T> {
+    pub name: String,
+    pub recs: Vec<T>,
+}
+
+#[derive(Debug)]
+pub struct BtfExtFunc {
+    pub insn_off: u32,
+    pub type_id: u32,
+}
+
+impl fmt::Display for BtfExtFunc {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "func: insn {} --> [{}]", self.insn_off, self.type_id)
+    }
+}
+
+#[derive(Debug)]
+pub struct BtfExtLine {
+    pub insn_off: u32,
+    pub file_name: String,
+    pub src_line: String,
+    pub line_num: u32,
+    pub col_num: u32,
+}
+
+impl fmt::Display for BtfExtLine {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "line: insn {} --> {}:{} @ {}\n\t{}",
+            self.insn_off, self.line_num, self.col_num, self.file_name, self.src_line
+        )
+    }
+}
+
+#[derive(Debug)]
+pub struct BtfExtOffsetReloc {
+    pub insn_off: u32,
+    pub type_id: u32,
+    pub access_spec: String,
+}
+
+impl fmt::Display for BtfExtOffsetReloc {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "off_reloc: insn {} --> [{}] + {}",
+            self.insn_off, self.type_id, self.access_spec
+        )
+    }
+}
+
+#[derive(Debug)]
 pub struct Btf {
     endian: scroll::Endian,
     types: Vec<BtfType>,
     ptr_sz: u32,
+    // .BTF.ext stuff
+    has_ext: bool,
+    func_secs: Vec<BtfExtSection<BtfExtFunc>>,
+    line_secs: Vec<BtfExtSection<BtfExtLine>>,
+    offset_reloc_secs: Vec<BtfExtSection<BtfExtOffsetReloc>>,
 }
 
 impl Btf {
@@ -731,6 +790,22 @@ impl Btf {
 
     pub fn type_cnt(&self) -> u32 {
         self.types.len() as u32
+    }
+
+    pub fn has_ext(&self) -> bool {
+        self.has_ext
+    }
+
+    pub fn func_secs(&self) -> &[BtfExtSection<BtfExtFunc>] {
+        &self.func_secs
+    }
+
+    pub fn line_secs(&self) -> &[BtfExtSection<BtfExtLine>] {
+        &self.line_secs
+    }
+
+    pub fn offset_reloc_secs(&self) -> &[BtfExtSection<BtfExtOffsetReloc>] {
+        &self.offset_reloc_secs
     }
 
     pub fn get_size_of(&self, type_id: u32) -> u32 {
@@ -793,11 +868,20 @@ impl Btf {
         } else {
             scroll::BE
         };
+        let mut btf = Btf {
+            endian: endian,
+            ptr_sz: if elf.elf().is_64 { 8 } else { 4 },
+            types: vec![BtfType::Void],
+            has_ext: false,
+            func_secs: Vec::new(),
+            line_secs: Vec::new(),
+            offset_reloc_secs: Vec::new(),
+        };
+
         let btf_section = elf
             .section_by_name(BTF_ELF_SEC)
             .ok_or_else(|| Box::new(BtfError::new("No .BTF section found!")))?;
         let data = btf_section.data();
-
         let hdr = data.pread_with::<btf_header>(0, endian)?;
         if hdr.magic != BTF_MAGIC {
             return btf_error(format!("Invalid BTF magic: {}", hdr.magic));
@@ -809,21 +893,53 @@ impl Btf {
             ));
         }
 
-        let mut btf = Btf {
-            endian: endian,
-            types: vec![BtfType::Void],
-            ptr_sz: if elf.elf().is_64 { 8 } else { 4 },
-        };
+        let str_off = (hdr.hdr_len + hdr.str_off) as usize;
+        let str_data = &data[str_off..str_off + hdr.str_len as usize];
 
         let type_off = (hdr.hdr_len + hdr.type_off) as usize;
         let type_data = &data[type_off..type_off + hdr.type_len as usize];
-        let str_off = (hdr.hdr_len + hdr.str_off) as usize;
-        let str_data = &data[str_off..str_off + hdr.str_len as usize];
         let mut off: usize = 0;
         while off < hdr.type_len as usize {
             let t = btf.load_type(&type_data[off..], str_data)?;
             off += Btf::type_size(&t);
             btf.types.push(t);
+        }
+
+        if let Some(ext_section) = elf.section_by_name(BTF_EXT_ELF_SEC) {
+            btf.has_ext = true;
+            let ext_data = ext_section.data();
+            let ext_hdr = ext_data.pread_with::<btf_ext_header_v1>(0, endian)?;
+            if ext_hdr.magic != BTF_MAGIC {
+                return btf_error(format!("Invalid .BTF.ext magic: {}", ext_hdr.magic));
+            }
+            if ext_hdr.version != BTF_VERSION {
+                return btf_error(format!(
+                    "Unsupported .BTF.ext version: {}, expect: {}",
+                    ext_hdr.version, BTF_VERSION
+                ));
+            }
+            let ext_hdr2 = if ext_hdr.hdr_len >= size_of::<btf_ext_header_v2>() as u32 {
+                Some(ext_data.pread_with::<btf_ext_header_v2>(0, endian)?)
+            } else {
+                None
+            };
+            if ext_hdr.func_info_len > 0 {
+                let func_off = (ext_hdr.hdr_len + ext_hdr.func_info_off) as usize;
+                let func_data = &ext_data[func_off..func_off + ext_hdr.func_info_len as usize];
+                btf.func_secs = btf.load_func_secs(func_data, str_data)?;
+            }
+            if ext_hdr.line_info_len > 0 {
+                let line_off = (ext_hdr.hdr_len + ext_hdr.line_info_off) as usize;
+                let line_data = &ext_data[line_off..line_off + ext_hdr.line_info_len as usize];
+                btf.line_secs = btf.load_line_secs(line_data, str_data)?;
+            }
+            if let Some(h) = ext_hdr2 {
+                if h.offset_reloc_len > 0 {
+                    let reloc_off = (h.hdr_len + h.offset_reloc_off) as usize;
+                    let reloc_data = &ext_data[reloc_off..reloc_off + h.offset_reloc_len as usize];
+                    btf.offset_reloc_secs = btf.load_offset_reloc_secs(reloc_data, str_data)?;
+                }
+            }
         }
 
         Ok(btf)
@@ -1023,182 +1139,12 @@ impl Btf {
         }))
     }
 
-    fn get_btf_str(strs: &[u8], off: u32) -> BtfResult<String> {
-        let c_str = unsafe { CStr::from_ptr(&strs[off as usize] as *const u8 as *const i8) };
-        Ok(c_str.to_str()?.to_owned())
-    }
-
     fn get_vlen(info: u32) -> u32 {
         info & 0xffff
     }
 
     fn get_kind(info: u32) -> bool {
         (info >> 31) == 1
-    }
-}
-
-#[derive(Debug)]
-pub struct BtfExtSection<T> {
-    pub name: String,
-    pub recs: Vec<T>,
-}
-
-#[derive(Debug)]
-pub struct BtfExtFunc {
-    pub insn_off: u32,
-    pub type_id: u32,
-}
-
-impl fmt::Display for BtfExtFunc {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "func: insn {} --> [{}]", self.insn_off, self.type_id)
-    }
-}
-
-#[derive(Debug)]
-pub struct BtfExtLine {
-    pub insn_off: u32,
-    pub file_name: String,
-    pub src_line: String,
-    pub line_num: u32,
-    pub col_num: u32,
-}
-
-impl fmt::Display for BtfExtLine {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "line: insn {} --> {}:{} @ {}\n\t{}",
-            self.insn_off, self.line_num, self.col_num, self.file_name, self.src_line
-        )
-    }
-}
-
-#[derive(Debug)]
-pub struct BtfExtOffsetReloc {
-    pub insn_off: u32,
-    pub type_id: u32,
-    pub access_spec: String,
-}
-
-impl fmt::Display for BtfExtOffsetReloc {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "off_reloc: insn {} --> [{}] + {}",
-            self.insn_off, self.type_id, self.access_spec
-        )
-    }
-}
-
-#[derive(Debug)]
-pub struct BtfExt {
-    endian: scroll::Endian,
-    func_secs: Vec<BtfExtSection<BtfExtFunc>>,
-    line_secs: Vec<BtfExtSection<BtfExtLine>>,
-    offset_reloc_secs: Vec<BtfExtSection<BtfExtOffsetReloc>>,
-}
-
-impl BtfExt {
-    pub fn func_secs(&self) -> &[BtfExtSection<BtfExtFunc>] {
-        &self.func_secs
-    }
-
-    pub fn line_secs(&self) -> &[BtfExtSection<BtfExtLine>] {
-        &self.line_secs
-    }
-
-    pub fn offset_reloc_secs(&self) -> &[BtfExtSection<BtfExtOffsetReloc>] {
-        &self.offset_reloc_secs
-    }
-
-    pub fn load<'data>(elf: &object::ElfFile<'data>) -> BtfResult<BtfExt> {
-        let endian = if elf.is_little_endian() {
-            scroll::LE
-        } else {
-            scroll::BE
-        };
-        let btfext_section = elf
-            .section_by_name(BTF_EXT_ELF_SEC)
-            .ok_or_else(|| Box::new(BtfError::new("No .BTF.ext section found!")))?;
-        let data = btfext_section.data();
-
-        let hdr = data.pread_with::<btf_ext_header_v1>(0, endian)?;
-        if hdr.magic != BTF_MAGIC {
-            return btf_error(format!("Invalid .BTF.ext magic: {}", hdr.magic));
-        }
-        if hdr.version != BTF_VERSION {
-            return btf_error(format!(
-                "Unsupported .BTF.ext version: {}, expect: {}",
-                hdr.version, BTF_VERSION
-            ));
-        }
-        println!("total size: {}, hdr: {:?}", data.len(), hdr);
-        println!("HERE1");
-        let hdr2 = if hdr.hdr_len >= size_of::<btf_ext_header_v2>() as u32 {
-            Some(data.pread_with::<btf_ext_header_v2>(0, endian)?)
-        } else {
-            None
-        };
-
-        println!("hdr2: {:?}", hdr2);
-        println!("HERE1");
-        let mut btfext = BtfExt {
-            endian: endian,
-            func_secs: Vec::new(),
-            line_secs: Vec::new(),
-            offset_reloc_secs: Vec::new(),
-        };
-
-        let str_data = btfext.load_strs(elf)?;
-        println!("HERE1");
-        if hdr.func_info_len > 0 {
-            let func_off = (hdr.hdr_len + hdr.func_info_off) as usize;
-            let func_data = &data[func_off..func_off + hdr.func_info_len as usize];
-            println!("HERE1");
-            btfext.func_secs = btfext.load_func_secs(func_data, str_data)?;
-        }
-        println!("HERE1");
-        if hdr.line_info_len > 0 {
-            let line_off = (hdr.hdr_len + hdr.line_info_off) as usize;
-            let line_data = &data[line_off..line_off + hdr.line_info_len as usize];
-            btfext.line_secs = btfext.load_line_secs(line_data, str_data)?;
-        }
-        println!("HERE1");
-        if let Some(h) = hdr2 {
-            if h.offset_reloc_len > 0 {
-                let reloc_off = (h.hdr_len + h.offset_reloc_off) as usize;
-                let reloc_data = &data[reloc_off..reloc_off + h.offset_reloc_len as usize];
-                btfext.offset_reloc_secs = btfext.load_offset_reloc_secs(reloc_data, str_data)?;
-            }
-        }
-        println!("HERE1");
-
-        Ok(btfext)
-    }
-
-    fn load_strs<'a>(&self, elf: &object::ElfFile<'a>) -> BtfResult<&'a [u8]> {
-        let btf_section = elf
-            .section_by_name(BTF_ELF_SEC)
-            .ok_or_else(|| Box::new(BtfError::new("No .BTF section found!")))?;
-        let data = match btf_section.data() {
-            std::borrow::Cow::Borrowed(x) => x,
-            _ => panic!("impossible"), // because we never overwrite data
-        };
-
-        let hdr = data.pread_with::<btf_header>(0, self.endian)?;
-        if hdr.magic != BTF_MAGIC {
-            return btf_error(format!("Invalid BTF magic: {}", hdr.magic));
-        }
-        if hdr.version != BTF_VERSION {
-            return btf_error(format!(
-                "Unsupported BTF version: {}, expect: {}",
-                hdr.version, BTF_VERSION
-            ));
-        }
-
-        let str_off = (hdr.hdr_len + hdr.str_off) as usize;
-        Ok(&data[str_off..str_off + hdr.str_len as usize])
     }
 
     fn load_func_secs(
@@ -1214,28 +1160,24 @@ impl BtfExt {
                 size_of::<btf_ext_func_info>()
             ));
         }
-        println!("rec size: {}", rec_sz);
+
         data = &data[size_of::<u32>()..];
         let mut secs = Vec::new();
         while !data.is_empty() {
             let sec_hdr = data.pread_with::<btf_ext_info_sec>(0, self.endian)?;
             data = &data[size_of::<btf_ext_info_sec>()..];
-            println!("read section");
 
             let mut recs = Vec::new();
             for i in 0..sec_hdr.num_info {
                 let off = (i * rec_sz) as usize;
-                println!("read rec");
                 let rec = data.pread_with::<btf_ext_func_info>(off, self.endian)?;
-                println!("read rec");
                 recs.push(BtfExtFunc {
                     insn_off: rec.insn_off,
                     type_id: rec.type_id,
                 });
             }
-            println!("HERE@");
             secs.push(BtfExtSection::<BtfExtFunc> {
-                name: BtfExt::get_btf_str(strs, sec_hdr.sec_name_off)?,
+                name: Btf::get_btf_str(strs, sec_hdr.sec_name_off)?,
                 recs: recs,
             });
 
@@ -1269,14 +1211,14 @@ impl BtfExt {
                 let rec = data.pread_with::<btf_ext_line_info>(off, self.endian)?;
                 recs.push(BtfExtLine {
                     insn_off: rec.insn_off,
-                    file_name: BtfExt::get_btf_str(strs, rec.file_name_off)?,
-                    src_line: BtfExt::get_btf_str(strs, rec.line_off)?,
+                    file_name: Btf::get_btf_str(strs, rec.file_name_off)?,
+                    src_line: Btf::get_btf_str(strs, rec.line_off)?,
                     line_num: rec.line_col >> 10,
                     col_num: rec.line_col & 0x3ff,
                 });
             }
             secs.push(BtfExtSection::<BtfExtLine> {
-                name: BtfExt::get_btf_str(strs, sec_hdr.sec_name_off)?,
+                name: Btf::get_btf_str(strs, sec_hdr.sec_name_off)?,
                 recs: recs,
             });
 
@@ -1311,25 +1253,17 @@ impl BtfExt {
                 recs.push(BtfExtOffsetReloc {
                     insn_off: rec.insn_off,
                     type_id: rec.type_id,
-                    access_spec: BtfExt::get_btf_str(strs, rec.access_spec_off)?,
+                    access_spec: Btf::get_btf_str(strs, rec.access_spec_off)?,
                 });
             }
             secs.push(BtfExtSection::<BtfExtOffsetReloc> {
-                name: BtfExt::get_btf_str(strs, sec_hdr.sec_name_off)?,
+                name: Btf::get_btf_str(strs, sec_hdr.sec_name_off)?,
                 recs: recs,
             });
 
             data = &data[(sec_hdr.num_info * rec_sz) as usize..];
         }
         Ok(secs)
-    }
-
-    fn parse_reloc_access_spec(access_spec_str: String) -> BtfResult<Vec<u16>> {
-        let mut spec = Vec::new();
-        for p in access_spec_str.split(".") {
-            spec.push(p.parse::<u16>()?);
-        }
-        Ok(spec)
     }
 
     fn get_btf_str(strs: &[u8], off: u32) -> BtfResult<String> {

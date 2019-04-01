@@ -1,7 +1,6 @@
 use std::error::Error;
 
 use memmap;
-use object::Object;
 use regex::Regex;
 use structopt::StructOpt;
 
@@ -94,11 +93,6 @@ fn main() -> Result<(), Box<dyn Error>> {
             let file = unsafe { memmap::Mmap::map(&file) }?;
             let file = object::ElfFile::parse(&*file)?;
             let btf = Btf::load(&file)?;
-            let btfext: Option<BtfExt> = if let Some(_) = file.section_by_name(BTF_EXT_ELF_SEC) {
-                Some(BtfExt::load(&file)?)
-            } else {
-                None
-            };
             let filter = create_query_filter(query)?;
             match format {
                 DumpFormat::Human => {
@@ -107,24 +101,22 @@ fn main() -> Result<(), Box<dyn Error>> {
                             println!("#{}: {}", i, t);
                         }
                     }
-                    if let Some(ext) = btfext {
-                        for (i, sec) in ext.func_secs().iter().enumerate() {
-                            println!("\nFunc section #{} '{}':", i, sec.name);
-                            for (j, rec) in sec.recs.iter().enumerate() {
-                                println!("#{}: {}", j, rec);
-                            }
+                    for (i, sec) in btf.func_secs().iter().enumerate() {
+                        println!("\nFunc section #{} '{}':", i, sec.name);
+                        for (j, rec) in sec.recs.iter().enumerate() {
+                            println!("#{}: {}", j, rec);
                         }
-                        for (i, sec) in ext.line_secs().iter().enumerate() {
-                            println!("\nLine section #{} '{}':", i, sec.name);
-                            for (j, rec) in sec.recs.iter().enumerate() {
-                                println!("#{}: {}", j, rec);
-                            }
+                    }
+                    for (i, sec) in btf.line_secs().iter().enumerate() {
+                        println!("\nLine section #{} '{}':", i, sec.name);
+                        for (j, rec) in sec.recs.iter().enumerate() {
+                            println!("#{}: {}", j, rec);
                         }
-                        for (i, sec) in ext.offset_reloc_secs().iter().enumerate() {
-                            println!("\nOffset reloc section #{} '{}':", i, sec.name);
-                            for (j, rec) in sec.recs.iter().enumerate() {
-                                println!("#{}: {}", j, rec);
-                            }
+                    }
+                    for (i, sec) in btf.offset_reloc_secs().iter().enumerate() {
+                        println!("\nOffset reloc section #{} '{}':", i, sec.name);
+                        for (j, rec) in sec.recs.iter().enumerate() {
+                            println!("#{}: {}", j, rec);
                         }
                     }
                 }
@@ -139,7 +131,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     Ok(())
 }
-
+/*
+    fn parse_reloc_access_spec(access_spec_str: String) -> BtfResult<Vec<u16>> {
+        let mut spec = Vec::new();
+        for p in access_spec_str.split(".") {
+            spec.push(p.parse::<u16>()?);
+        }
+        Ok(spec)
+    }
+*/
 fn create_query_filter(q: QueryArgs) -> BtfResult<Box<dyn Fn(u32, &BtfType) -> bool>> {
     let mut filters: Vec<Box<dyn Fn(u32, &BtfType) -> bool>> = Vec::new();
     if !q.kinds.is_empty() {
