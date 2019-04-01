@@ -31,6 +31,60 @@ static int (*bpf_trace_printk)(const char *fmt, int fmt_size, ...) =
 
 #define SEC(NAME) __attribute__((section(NAME), used))
 #define _(P) ({typeof(P) val = 0; bpf_probe_read(&val, sizeof(val), &P); val;})
+#define R(P) do { void *x; bpf_probe_read(x, sizeof(1), (void*)&P); } while (0);
+
+struct T {
+	int t1;
+	int t2;
+};
+typedef struct { int x; } W;
+struct S {
+	const volatile struct {
+		const int a;
+		const union {
+			char b;
+			struct {
+				char c;
+				int d;
+			} e;
+		};
+	};
+	struct T f[10];
+	struct V {
+		const char *g;
+		void (*h)(int);
+	} v;
+	W w;
+	struct {
+		struct T x[5];
+	} y[7];
+};
+
+SEC("__reloc_test")
+int reloc_test(struct S* s) {
+	struct S arr[2];
+
+	//R(arr[1].w);
+	R(s[1]);
+
+	R(s->a);
+	//R(s->b);
+	//R(s->e.c);
+	//R(s->e.d);
+	//R(s->e);
+	R(s->f[3]);
+	R(s->f[2].t1);
+	//R(s->v);
+	R(s->v.g);
+	R(s->v.h);
+	R(s->w);
+	//R(s->w.x);
+	R(s->y[1]);
+	R(s->y[2].x[3]);
+	R(s->y[3].x[4].t2);
+
+	return 0;
+}
 
 SEC("kprobe/__netif_receive_skb_core")
 int bpf_prog1(struct pt_regs *ctx)
@@ -56,6 +110,8 @@ int bpf_prog1(struct pt_regs *ctx)
 		bpf_trace_printk(fmt, sizeof(fmt), skb, len);
 	}
 
+	//R(skb[2].__pkt_type_offset);
+	R(skb->tcp_tsorted_anchor);
 	return 0;
 }
 

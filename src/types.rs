@@ -862,6 +862,18 @@ impl Btf {
         }
     }
 
+    pub fn skip_mods_and_typedefs(&self, mut type_id: u32) -> u32 {
+        loop {
+            match self.type_by_id(type_id) {
+                BtfType::Volatile(t) => type_id = t.type_id,
+                BtfType::Const(t) => type_id = t.type_id,
+                BtfType::Restrict(t) => type_id = t.type_id,
+                BtfType::Typedef(t) => type_id = t.type_id,
+                _ => return type_id,
+            }
+        }
+    }
+
     pub fn load<'data>(elf: &object::ElfFile<'data>) -> BtfResult<Btf> {
         let endian = if elf.is_little_endian() {
             scroll::LE
@@ -977,14 +989,7 @@ impl Btf {
             BTF_KIND_STRUCT => self.load_struct(&t, extra, strs),
             BTF_KIND_UNION => self.load_union(&t, extra, strs),
             BTF_KIND_ENUM => self.load_enum(&t, extra, strs),
-            BTF_KIND_FWD => Ok(BtfType::Fwd(BtfFwd {
-                name: Btf::get_btf_str(strs, t.name_off)?,
-                kind: if Btf::get_kind(t.info) {
-                    BtfFwdKind::Union
-                } else {
-                    BtfFwdKind::Struct
-                },
-            })),
+            BTF_KIND_FWD => self.load_fwd(&t, strs),
             BTF_KIND_TYPEDEF => Ok(BtfType::Typedef(BtfTypedef {
                 name: Btf::get_btf_str(strs, t.name_off)?,
                 type_id: t.type_id,
@@ -1083,6 +1088,18 @@ impl Btf {
             name: Btf::get_btf_str(strs, t.name_off)?,
             sz_bits: t.type_id, // it's a type/size union in C
             values: vals,
+        }))
+    }
+
+    fn load_fwd(&self, t: &btf_type, strs: &[u8]) -> BtfResult<BtfType> {
+        Ok(BtfType::Fwd(BtfFwd {
+            name: Btf::get_btf_str(strs, t.name_off)
+                .or_else(|e| -> BtfResult<String> { Ok(format!("ERR:{}", e)) })?,
+            kind: if Btf::get_kind(t.info) {
+                BtfFwdKind::Union
+            } else {
+                BtfFwdKind::Struct
+            },
         }))
     }
 

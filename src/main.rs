@@ -6,7 +6,7 @@ use structopt::StructOpt;
 
 use btf::c_dumper;
 use btf::types::*;
-use btf::{BtfError, BtfResult};
+use btf::{btf_error, BtfError, BtfResult};
 
 #[derive(Debug)]
 enum DumpFormat {
@@ -116,7 +116,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                     for (i, sec) in btf.offset_reloc_secs().iter().enumerate() {
                         println!("\nOffset reloc section #{} '{}':", i, sec.name);
                         for (j, rec) in sec.recs.iter().enumerate() {
-                            println!("#{}: {}", j, rec);
+                            print!("#{}: ", j);
+                            emit_access_spec(&btf, rec)?;
+                            println!("");
                         }
                     }
                 }
@@ -131,15 +133,79 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     Ok(())
 }
-/*
-    fn parse_reloc_access_spec(access_spec_str: String) -> BtfResult<Vec<u16>> {
-        let mut spec = Vec::new();
-        for p in access_spec_str.split(".") {
-            spec.push(p.parse::<u16>()?);
+
+fn emit_access_spec(btf: &Btf, rec: &BtfExtOffsetReloc) -> BtfResult<()> {
+    use std::io::Write;
+    print!("{} --> &", rec);
+    std::io::stdout().flush()?;
+    let spec = parse_reloc_access_spec(&rec.access_spec)?;
+
+    let mut id = rec.type_id;
+    match btf.type_by_id(id) {
+        BtfType::Struct(t) => {
+            print!(
+                "struct {}",
+                if t.name.is_empty() { "<anon>" } else { &t.name }
+            );
         }
-        Ok(spec)
+        BtfType::Union(t) => {
+            print!(
+                "union {}",
+                if t.name.is_empty() { "<anon>" } else { &t.name }
+            );
+        }
+        _ => btf_error(format!(
+            "Unsupported accessor spec: '{}', at #{}, type_id: {}, type: {}",
+            rec.access_spec,
+            0,
+            id,
+            btf.type_by_id(id),
+        ))?,
     }
-*/
+    if spec[0] > 0 {
+        print!("[{}]", spec[0]);
+    }
+
+    for i in 1..spec.len() {
+        match btf.type_by_id(id) {
+            BtfType::Struct(t) => {
+                let m = &t.members[spec[i] as usize];
+                if !m.name.is_empty() {
+                    print!(".{}", m.name);
+                }
+                id = btf.skip_mods_and_typedefs(m.type_id);
+            }
+            BtfType::Union(t) => {
+                let m = &t.members[spec[i] as usize];
+                if !m.name.is_empty() {
+                    print!(".{}", m.name);
+                }
+                id = btf.skip_mods_and_typedefs(m.type_id);
+            }
+            BtfType::Array(t) => {
+                print!("[{}]", spec[i] as usize);
+                id = btf.skip_mods_and_typedefs(t.val_type_id);
+            }
+            _ => btf_error(format!(
+                "Unsupported accessor spec: {}, at #{}, type_id: {}, type: {}",
+                rec.access_spec,
+                i,
+                id,
+                btf.type_by_id(id),
+            ))?,
+        }
+    }
+    Ok(())
+}
+
+fn parse_reloc_access_spec(access_spec_str: &str) -> BtfResult<Vec<u32>> {
+    let mut spec = Vec::new();
+    for p in access_spec_str.trim_end_matches(':').split(':') {
+        spec.push(p.parse::<u32>()?);
+    }
+    Ok(spec)
+}
+
 fn create_query_filter(q: QueryArgs) -> BtfResult<Box<dyn Fn(u32, &BtfType) -> bool>> {
     let mut filters: Vec<Box<dyn Fn(u32, &BtfType) -> bool>> = Vec::new();
     if !q.kinds.is_empty() {
