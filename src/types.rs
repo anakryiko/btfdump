@@ -712,6 +712,7 @@ impl std::str::FromStr for BtfKind {
 #[derive(Debug)]
 pub struct BtfExtSection<T> {
     pub name: String,
+    pub rec_sz: usize,
     pub recs: Vec<T>,
 }
 
@@ -957,7 +958,7 @@ impl Btf {
         Ok(btf)
     }
 
-    fn type_size(t: &BtfType) -> usize {
+    pub fn type_size(t: &BtfType) -> usize {
         let common = size_of::<btf_type>();
         match t {
             BtfType::Void => 0,
@@ -1195,6 +1196,7 @@ impl Btf {
             }
             secs.push(BtfExtSection::<BtfExtFunc> {
                 name: Btf::get_btf_str(strs, sec_hdr.sec_name_off)?,
+                rec_sz: rec_sz as usize,
                 recs: recs,
             });
 
@@ -1236,6 +1238,7 @@ impl Btf {
             }
             secs.push(BtfExtSection::<BtfExtLine> {
                 name: Btf::get_btf_str(strs, sec_hdr.sec_name_off)?,
+                rec_sz: rec_sz as usize,
                 recs: recs,
             });
 
@@ -1275,6 +1278,7 @@ impl Btf {
             }
             secs.push(BtfExtSection::<BtfExtOffsetReloc> {
                 name: Btf::get_btf_str(strs, sec_hdr.sec_name_off)?,
+                rec_sz: rec_sz as usize,
                 recs: recs,
             });
 

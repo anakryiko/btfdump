@@ -1,8 +1,13 @@
+use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::error::Error;
 
 use bitflags::bitflags;
 use memmap;
+use object::{Object, ObjectSection};
 use regex::Regex;
+use scroll::Pread;
+use std::mem::size_of;
 use structopt::StructOpt;
 
 use btf::c_dumper;
@@ -117,7 +122,7 @@ enum Cmd {
             long = "dataset",
             default_value = "types",
             raw(
-                possible_values = r#"&["types", "funcs", "lines", "relocs", "all", "ext", "none"]"#,
+                possible_values = r#"&["types", "type", "t", "funcs", "func", "f", "lines", "line", "l", "relocs", "reloc", "r", "all", "a", "exts", "ext", "none"]"#,
                 next_line_help = "true"
             )
         )]
@@ -128,6 +133,12 @@ enum Cmd {
         verbose: bool,
         #[structopt(flatten)]
         query: QueryArgs,
+    },
+    #[structopt(name = "stat")]
+    /// Stats about .BTF and .BTF.ext data
+    Stat {
+        #[structopt(parse(from_os_str))]
+        file: std::path::PathBuf,
     },
 }
 
@@ -192,6 +203,12 @@ fn main() -> Result<(), Box<dyn Error>> {
                     dumper.dump_types(filter)?;
                 }
             }
+        }
+        Cmd::Stat { file } => {
+            let file = std::fs::File::open(&file)?;
+            let file = unsafe { memmap::Mmap::map(&file) }?;
+            let file = object::ElfFile::parse(&*file)?;
+            stat_btf(&file)?;
         }
     }
     Ok(())
@@ -301,4 +318,168 @@ fn create_query_filter(q: QueryArgs) -> BtfResult<Box<dyn Fn(u32, &BtfType) -> b
     } else {
         Ok(Box::new(|_: u32, _: &BtfType| true))
     }
+}
+
+fn stat_btf(elf: &object::ElfFile) -> BtfResult<()> {
+    let endian = if elf.is_little_endian() {
+        scroll::LE
+    } else {
+        scroll::BE
+    };
+    if let Some(btf_section) = elf.section_by_name(BTF_ELF_SEC) {
+        let data = btf_section.data();
+        let hdr = data.pread_with::<btf_header>(0, endian)?;
+        println!(
+            "{} ELF section\n=======================================",
+            BTF_ELF_SEC
+        );
+        println!("Data size:\t{}", data.len());
+        println!("Header size:\t{}", hdr.hdr_len);
+        println!("Types size:\t{}", hdr.type_len);
+        println!("Strings size:\t{}", hdr.str_len);
+    } else {
+        println!("{} not found.", BTF_ELF_SEC);
+        return Ok(());
+    }
+    println!(
+        "\n{} ELF section\n========================================",
+        BTF_EXT_ELF_SEC
+    );
+    if let Some(ext_section) = elf.section_by_name(BTF_EXT_ELF_SEC) {
+        let ext_data = ext_section.data();
+        let ext_hdr = ext_data.pread_with::<btf_ext_header_v1>(0, endian)?;
+        println!("Data size:\t{}", ext_data.len());
+        println!("Header size:\t{}", ext_hdr.hdr_len);
+        println!("Func info size:\t{}", ext_hdr.func_info_len);
+        println!("Line info size:\t{}", ext_hdr.line_info_len);
+        if ext_hdr.hdr_len >= size_of::<btf_ext_header_v2>() as u32 {
+            let ext_hdr2 = ext_data.pread_with::<btf_ext_header_v2>(0, endian)?;
+            println!("Relocs size:\t{}", ext_hdr2.offset_reloc_len);
+        }
+    } else {
+        println!("{} not found.", BTF_EXT_ELF_SEC);
+    }
+    match Btf::load(elf) {
+        Err(e) => println!("Failed to parse BTF data: {}", e),
+        Ok(btf) => {
+            let mut type_stats: HashMap<BtfKind, (usize, usize)> = HashMap::new();
+            for t in &btf.types()[1..] {
+                let (cnt, sz) = type_stats.entry(t.kind()).or_insert((0, 0));
+                *cnt += 1;
+                *sz += Btf::type_size(t);
+            }
+            let mut total_cnt = 0;
+            let mut total_sz = 0;
+            for (cnt, sz) in type_stats.values() {
+                total_cnt += cnt;
+                total_sz += sz;
+            }
+            let mut type_stats = type_stats
+                .into_iter()
+                .map(|(k, (cnt, sz))| (k, cnt, sz))
+                .collect::<Vec<(BtfKind, usize, usize)>>();
+            type_stats.sort_by_key(|&(_, _, sz)| std::cmp::Reverse(sz));
+            println!("\nBTF types\n=======================================");
+            println!("{:10} {:9} bytes ({} types)", "Total", total_sz, total_cnt);
+            for (k, cnt, sz) in type_stats {
+                println!("{:10} {:9} bytes ({} types)", format!("{:?}:", k), sz, cnt);
+            }
+
+            if btf.has_ext() {
+                struct Section {
+                    func_cnt: usize,
+                    func_sz: usize,
+                    line_cnt: usize,
+                    line_sz: usize,
+                    off_reloc_cnt: usize,
+                    off_reloc_sz: usize,
+                };
+                let new_sec = || Section {
+                    func_cnt: 0,
+                    func_sz: 0,
+                    line_cnt: 0,
+                    line_sz: 0,
+                    off_reloc_cnt: 0,
+                    off_reloc_sz: 0,
+                };
+                let mut sec_stats = BTreeMap::new();
+                let mut total = new_sec();
+                for sec in btf.func_secs() {
+                    let s = sec_stats.entry(&sec.name).or_insert_with(new_sec);
+                    s.func_cnt += sec.recs.len();
+                    s.func_sz += sec.rec_sz * sec.recs.len();
+                    total.func_cnt += sec.recs.len();
+                    total.func_sz += sec.rec_sz * sec.recs.len();
+                }
+                for sec in btf.line_secs() {
+                    let s = sec_stats.entry(&sec.name).or_insert_with(new_sec);
+                    s.line_cnt += sec.recs.len();
+                    s.line_sz += sec.rec_sz * sec.recs.len();
+                    total.line_cnt += sec.recs.len();
+                    total.line_sz += sec.rec_sz * sec.recs.len();
+                }
+                for sec in btf.offset_reloc_secs() {
+                    let s = sec_stats.entry(&sec.name).or_insert_with(new_sec);
+                    s.off_reloc_cnt += sec.recs.len();
+                    s.off_reloc_sz += sec.rec_sz * sec.recs.len();
+                    total.off_reloc_cnt += sec.recs.len();
+                    total.off_reloc_sz += sec.rec_sz * sec.recs.len();
+                }
+                println!("\nBTF ext sections\n=======================================");
+                println!(
+                    "{:32} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}",
+                    "Section",
+                    "Func sz",
+                    "Func cnt",
+                    "Line sz",
+                    "Line cnt",
+                    "Reloc sz",
+                    "Reloc cnt"
+                );
+                println!(
+                    "{:32} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}",
+                    "--------------------------------",
+                    "----------",
+                    "----------",
+                    "----------",
+                    "----------",
+                    "----------",
+                    "----------",
+                );
+                for (k, s) in sec_stats {
+                    println!(
+                        "{:32} {:10} {:10} {:10} {:10} {:10} {:10}",
+                        k,
+                        s.func_sz,
+                        s.func_cnt,
+                        s.line_sz,
+                        s.line_cnt,
+                        s.off_reloc_sz,
+                        s.off_reloc_cnt
+                    );
+                }
+                println!(
+                    "{:32} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}",
+                    "--------------------------------",
+                    "----------",
+                    "----------",
+                    "----------",
+                    "----------",
+                    "----------",
+                    "----------",
+                );
+                println!(
+                    "{:32} {:10} {:10} {:10} {:10} {:10} {:10}",
+                    "Total",
+                    total.func_sz,
+                    total.func_cnt,
+                    total.line_sz,
+                    total.line_cnt,
+                    total.off_reloc_sz,
+                    total.off_reloc_cnt
+                );
+            }
+        }
+    }
+    Ok(())
 }
