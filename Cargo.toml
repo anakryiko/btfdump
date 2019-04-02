@@ -22,6 +22,7 @@ scroll = "0.9.2"
 scroll_derive = "0.9.5"
 regex = "1"
 lazy_static = "1"
+bitflags = "1"
 
 [dependencies.clap]
 version = "2.32"

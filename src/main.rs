@@ -1,5 +1,6 @@
 use std::error::Error;
 
+use bitflags::bitflags;
 use memmap;
 use regex::Regex;
 use structopt::StructOpt;
@@ -27,6 +28,46 @@ impl std::str::FromStr for DumpFormat {
             "c" => Ok(DumpFormat::C),
             _ => Err(BtfError::new_owned(format!(
                 "unrecognized dump format: '{}'",
+                s
+            ))),
+        }
+    }
+}
+
+bitflags! {
+    struct Datasets : u32 {
+        const NONE          = 0b0000;
+        const TYPES         = 0b0001;
+        const FUNCINFOS     = 0b0010;
+        const LINEINFOS     = 0b0100;
+        const OFFSETRELOCS  = 0b1000;
+
+        const RELOCS = Self::OFFSETRELOCS.bits;
+        const EXT    = Self::FUNCINFOS.bits | Self::LINEINFOS.bits | Self::OFFSETRELOCS.bits;
+        const ALL    = Self::TYPES.bits | Self::EXT.bits;
+    }
+}
+
+impl Default for Datasets {
+    fn default() -> Datasets {
+        Datasets::NONE
+    }
+}
+
+impl std::str::FromStr for Datasets {
+    type Err = BtfError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "none" => Ok(Datasets::NONE),
+            "types" | "type" | "t" => Ok(Datasets::TYPES),
+            "funcs" | "func" | "f" => Ok(Datasets::FUNCINFOS),
+            "lines" | "line" | "l" => Ok(Datasets::LINEINFOS),
+            "relocs" | "reloc" | "r" => Ok(Datasets::RELOCS),
+            "exts" | "ext" | "e" => Ok(Datasets::EXT),
+            "all" | "a" => Ok(Datasets::ALL),
+            _ => Err(BtfError::new_owned(format!(
+                "unrecognized dataset: '{}'",
                 s
             ))),
         }
@@ -71,6 +112,17 @@ enum Cmd {
         )]
         /// Output format
         format: DumpFormat,
+        #[structopt(
+            short = "d",
+            long = "dataset",
+            default_value = "types",
+            raw(
+                possible_values = r#"&["types", "funcs", "lines", "relocs", "all", "ext", "none"]"#,
+                next_line_help = "true"
+            )
+        )]
+        /// Datasets to output
+        datasets: Vec<Datasets>,
         #[structopt(short = "v", long = "verbose")]
         /// Output verbose log
         verbose: bool,
@@ -86,39 +138,50 @@ fn main() -> Result<(), Box<dyn Error>> {
         Cmd::Dump {
             file,
             format,
+            datasets,
             verbose,
             query,
         } => {
+            let datasets = datasets.iter().fold(Datasets::NONE, |x, &y| x | y);
             let file = std::fs::File::open(&file)?;
             let file = unsafe { memmap::Mmap::map(&file) }?;
             let file = object::ElfFile::parse(&*file)?;
             let btf = Btf::load(&file)?;
             let filter = create_query_filter(query)?;
+
             match format {
                 DumpFormat::Human => {
-                    for (i, t) in btf.types().iter().enumerate() {
-                        if filter(i as u32, t) {
-                            println!("#{}: {}", i, t);
+                    if datasets.contains(Datasets::TYPES) {
+                        for (i, t) in btf.types().iter().enumerate() {
+                            if filter(i as u32, t) {
+                                println!("#{}: {}", i, t);
+                            }
                         }
                     }
-                    for (i, sec) in btf.func_secs().iter().enumerate() {
-                        println!("\nFunc section #{} '{}':", i, sec.name);
-                        for (j, rec) in sec.recs.iter().enumerate() {
-                            println!("#{}: {}", j, rec);
+                    if datasets.contains(Datasets::FUNCINFOS) {
+                        for (i, sec) in btf.func_secs().iter().enumerate() {
+                            println!("\nFunc section #{} '{}':", i, sec.name);
+                            for (j, rec) in sec.recs.iter().enumerate() {
+                                println!("#{}: {}", j, rec);
+                            }
                         }
                     }
-                    for (i, sec) in btf.line_secs().iter().enumerate() {
-                        println!("\nLine section #{} '{}':", i, sec.name);
-                        for (j, rec) in sec.recs.iter().enumerate() {
-                            println!("#{}: {}", j, rec);
+                    if datasets.contains(Datasets::LINEINFOS) {
+                        for (i, sec) in btf.line_secs().iter().enumerate() {
+                            println!("\nLine section #{} '{}':", i, sec.name);
+                            for (j, rec) in sec.recs.iter().enumerate() {
+                                println!("#{}: {}", j, rec);
+                            }
                         }
                     }
-                    for (i, sec) in btf.offset_reloc_secs().iter().enumerate() {
-                        println!("\nOffset reloc section #{} '{}':", i, sec.name);
-                        for (j, rec) in sec.recs.iter().enumerate() {
-                            print!("#{}: ", j);
-                            emit_access_spec(&btf, rec)?;
-                            println!("");
+                    if datasets.contains(Datasets::OFFSETRELOCS) {
+                        for (i, sec) in btf.offset_reloc_secs().iter().enumerate() {
+                            println!("\nOffset reloc section #{} '{}':", i, sec.name);
+                            for (j, rec) in sec.recs.iter().enumerate() {
+                                print!("#{}: ", j);
+                                emit_access_spec(&btf, rec)?;
+                                println!("");
+                            }
                         }
                     }
                 }
