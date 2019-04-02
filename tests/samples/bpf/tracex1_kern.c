@@ -46,7 +46,11 @@ struct S {
 			struct {
 				char c;
 				int d;
-			} e;
+			} __attribute__((packed)) e;
+			struct {
+				long q;
+				int r;
+			} p;
 		};
 	};
 	struct T f[10];
@@ -65,24 +69,27 @@ int reloc_test(struct S* s) {
 	struct S arr[2];
 
 	//R(arr[1].w);
-	R(s[1]);
+	//R(s[1]);
 
-	R(s->a);
+	//R(s->a);
 	//R(s->b);
-	//R(s->e.c);
-	//R(s->e.d);
+	R(s->e.c);
+	R(s->e.d);
 	//R(s->e);
-	R(s->f[3]);
+	//R(s->p);
+	R(s->p.q);
+	R(s->p.r);
+/*	R(s->f[3]);
 	R(s->f[2].t1);
-	//R(s->v);
+	R(s->v);
 	R(s->v.g);
 	R(s->v.h);
 	R(s->w);
-	//R(s->w.x);
+	R(s->w.x);
 	R(s->y[1]);
 	R(s->y[2].x[3]);
 	R(s->y[3].x[4].t2);
-
+*/
 	return 0;
 }
 

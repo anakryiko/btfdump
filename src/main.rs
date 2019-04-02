@@ -190,7 +190,10 @@ fn main() -> Result<(), Box<dyn Error>> {
                             println!("\nOffset reloc section #{} '{}':", i, sec.name);
                             for (j, rec) in sec.recs.iter().enumerate() {
                                 print!("#{}: ", j);
-                                emit_access_spec(&btf, rec)?;
+                                match emit_access_spec(&btf, rec) {
+                                    Ok(_) => {}
+                                    Err(e) => print!(" ERROR: {}", e),
+                                };
                                 println!("");
                             }
                         }
@@ -252,6 +255,8 @@ fn emit_access_spec(btf: &Btf, rec: &BtfExtOffsetReloc) -> BtfResult<()> {
                 let m = &t.members[spec[i] as usize];
                 if !m.name.is_empty() {
                     print!(".{}", m.name);
+                } else {
+                    print!(".<anon>");
                 }
                 id = btf.skip_mods_and_typedefs(m.type_id);
             }
@@ -259,6 +264,8 @@ fn emit_access_spec(btf: &Btf, rec: &BtfExtOffsetReloc) -> BtfResult<()> {
                 let m = &t.members[spec[i] as usize];
                 if !m.name.is_empty() {
                     print!(".{}", m.name);
+                } else {
+                    print!(".<anon>");
                 }
                 id = btf.skip_mods_and_typedefs(m.type_id);
             }
