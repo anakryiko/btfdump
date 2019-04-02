@@ -12,7 +12,7 @@ typedef struct { int x; } W;
 struct S {
 	const volatile struct {
 		const int a;
-		const union {
+		const struct /*union*/ {
 			char b;
 			struct {
 				char c;
@@ -28,7 +28,7 @@ struct S {
 			} p2;
 		};
 	};
-	struct T f[10];
+	struct T f[4];
 	struct V {
 		const char *g;
 		void (*h)(int);
@@ -36,13 +36,20 @@ struct S {
 	W w;
 	struct {
 		struct T x[5];
-	} y[7];
+	} y[4];
 };
 
 SEC("__reloc_test")
 int reloc_test(struct S* s) {
-	R(s->e.d);
+	struct S arr[2];
+	R(arr[1].y[2].x[3].t2);
+	R(arr[0].y[1].x[2]);
+
+	R(s->a);
+	R(s->b);
 	R(s->e);
+	R(s->e.c);
+	R(s->e.d);
 	R(s->p);
 	R(s->p.q);
 	R(s->p.r);
@@ -62,3 +69,4 @@ int reloc_test(struct S* s) {
 
 	return 0;
 }
+

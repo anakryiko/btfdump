@@ -12,6 +12,7 @@ Cargo.lock
 **/*.o
 **/*.out
 /tests/samples/bpf/vmlinux.h
+/tests/samples/bpf/vmlinux_no_unions.h
 
 #Added by cargo
 #

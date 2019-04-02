@@ -47,18 +47,24 @@ enum NamedKind {
     Func,
 }
 
+#[derive(Debug)]
+pub struct CDumperCfg {
+    pub verbose: bool,
+    pub union_as_struct: bool,
+}
+
 pub struct CDumper<'a> {
     btf: &'a Btf,
-    verbose: bool,
+    cfg: CDumperCfg,
     state: Vec<TypeState>,
     names: HashMap<(NamedKind, &'a str), u32>,
 }
 
 impl<'a> CDumper<'a> {
-    pub fn new(btf: &'a Btf, verbose: bool) -> CDumper<'a> {
+    pub fn new(btf: &'a Btf, cfg: CDumperCfg) -> CDumper<'a> {
         let mut dumper = CDumper {
             btf: btf,
-            verbose: verbose,
+            cfg: cfg,
             state: Vec::new(),
             names: HashMap::new(),
         };
@@ -73,38 +79,29 @@ impl<'a> CDumper<'a> {
         for id in 0..self.btf.type_cnt() {
             let bt = self.btf.type_by_id(id);
             if self.is_named_def(id) && filter(id, bt) {
-                if self.verbose {
+                if self.cfg.verbose {
                     eprintln!("ORDERING id: {}, type: {}", id, bt);
                 }
                 self.order_type(id, false, &mut order)?;
             }
         }
-        if self.verbose {
+        if self.cfg.verbose {
             for (i, &id) in order.iter().enumerate() {
                 eprintln!("ORDER #{} id: {}, type: {}", i, id, self.btf.type_by_id(id));
             }
         }
         // emit struct/union and fwds required by them in correct order
         for id in order {
-            if self.verbose {
-                println!("XXX id:{}, is_named_def:{}", id, self.is_named_def(id));
-            }
             if self.is_named_def(id) {
                 self.emit_type_fwds(id, id, true)?;
-                if self.verbose {
-                    println!("FWDS id: {}, type: {}", id, self.btf.type_by_id(id));
-                }
                 self.emit_type_def(id)?;
-                if self.verbose {
-                    println!("DEF id: {}, type: {}", id, self.btf.type_by_id(id));
-                }
             }
         }
         Ok(())
     }
 
     fn order_type(&mut self, id: u32, has_ptr: bool, order: &mut Vec<u32>) -> BtfResult<bool> {
-        if self.verbose {
+        if self.cfg.verbose {
             eprintln!(
                 "ORDER TYPE id:{}, has_ptr:{}, type:{}, is_def:{}, order_state:{:?}",
                 id,
@@ -211,7 +208,7 @@ impl<'a> CDumper<'a> {
     }
 
     fn emit_type_fwds(&mut self, id: u32, cont_id: u32, is_def: bool) -> BtfResult<()> {
-        if self.verbose {
+        if self.cfg.verbose {
             println!(
                 "EMIT_TYPE_FWDS id: {}, cont_id: {}, is_def: {}, state: {:?}, type: {}",
                 id,
@@ -231,9 +228,6 @@ impl<'a> CDumper<'a> {
                         return Ok(());
                     }
                     if !t.name.is_empty() {
-                        if self.verbose {
-                            print!("AAA ");
-                        }
                         if self.emit_struct_fwd(id, t) {
                             println!(";\n");
                         }
@@ -309,9 +303,6 @@ impl<'a> CDumper<'a> {
                         )?;
                     }
                 } else if !self.get_fwd_emitted(id) && id != cont_id {
-                    if self.verbose {
-                        print!("BBB ");
-                    }
                     if self.emit_struct_fwd(id, t) {
                         println!(";\n");
                     }
@@ -359,9 +350,6 @@ impl<'a> CDumper<'a> {
                 self.set_emit_state(id, EmitState::Emitting);
                 self.emit_type_fwds(t.type_id, id, false)?;
                 if !self.get_fwd_emitted(id) {
-                    if self.verbose {
-                        print!("BBB ");
-                    }
                     // emit typedef right now, if someone depends on it "weakly" (though pointer)
                     self.emit_typedef_def(id, t, 0);
                     println!(";\n");
@@ -374,14 +362,6 @@ impl<'a> CDumper<'a> {
     }
 
     fn emit_type_def(&mut self, id: u32) -> BtfResult<()> {
-        if self.verbose {
-            println!(
-                "EMIT_TYPE_DEF1 id:{} state:{:?} fwd_emitted:{}",
-                id,
-                self.get_emit_state(id),
-                self.get_fwd_emitted(id),
-            );
-        }
         match self.get_emit_state(id) {
             EmitState::NotEmitted => {}
             EmitState::Emitting => {
@@ -392,9 +372,6 @@ impl<'a> CDumper<'a> {
                 ));
             }
             EmitState::Emitted => return Ok(()),
-        }
-        if self.verbose {
-            println!("EMIT_TYPE_DEF2 id:{}", id);
         }
         match self.btf.type_by_id(id) {
             BtfType::Struct(t) if !t.name.is_empty() => {
@@ -415,9 +392,6 @@ impl<'a> CDumper<'a> {
             }
             BtfType::Typedef(t) if !t.name.is_empty() => {
                 if !self.get_fwd_emitted(id) {
-                    if self.verbose {
-                        print!("CCC ");
-                    }
                     self.emit_typedef_def(id, t, 0);
                     println!(";\n");
                 }
@@ -429,9 +403,6 @@ impl<'a> CDumper<'a> {
                     self.btf.type_by_id(id)
                 ));
             }
-        }
-        if self.verbose {
-            println!("EMIT_TYPE_DEF3 id:{}", id);
         }
         self.set_emit_state(id, EmitState::Emitted);
         Ok(())
@@ -580,7 +551,12 @@ impl<'a> CDumper<'a> {
         if NAMES_BLACKLIST.is_match(&t.name) {
             return false;
         }
-        print!("union {}", self.resolve_name(id));
+        let keyword = if self.cfg.union_as_struct {
+            "struct /*union*/"
+        } else {
+            "union"
+        };
+        print!("{} {}", keyword, self.resolve_name(id));
         return true;
     }
 
@@ -588,8 +564,13 @@ impl<'a> CDumper<'a> {
         if NAMES_BLACKLIST.is_match(&t.name) {
             return;
         }
+        let keyword = if self.cfg.union_as_struct {
+            "struct /*union*/"
+        } else {
+            "union"
+        };
         let name = self.resolve_name(id);
-        print!("union{}{} {{", sep(&name), name);
+        print!("{}{}{} {{", keyword, sep(&name), name);
         for m in &t.members {
             print!("\n{}", pfx(lvl + 1));
             self.emit_type_decl(m.type_id, &m.name, lvl + 1);
@@ -629,7 +610,13 @@ impl<'a> CDumper<'a> {
         let name = self.resolve_name(id);
         match t.kind {
             BtfFwdKind::Struct => print!("struct {}", name),
-            BtfFwdKind::Union => print!("union {}", name),
+            BtfFwdKind::Union => {
+                if self.cfg.union_as_struct {
+                    print!("struct /*union*/ {}", name)
+                } else {
+                    print!("union {}", name)
+                }
+            }
         }
     }
 

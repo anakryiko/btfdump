@@ -128,11 +128,14 @@ enum Cmd {
         )]
         /// Datasets to output
         datasets: Vec<Datasets>,
+        #[structopt(flatten)]
+        query: QueryArgs,
         #[structopt(short = "v", long = "verbose")]
         /// Output verbose log
         verbose: bool,
-        #[structopt(flatten)]
-        query: QueryArgs,
+        #[structopt(long = "union-as-struct")]
+        /// Replace unions with structs (for BPF CORE)
+        union_as_struct: bool,
     },
     #[structopt(name = "stat")]
     /// Stats about .BTF and .BTF.ext data
@@ -150,8 +153,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             file,
             format,
             datasets,
-            verbose,
             query,
+            verbose,
+            union_as_struct,
         } => {
             let datasets = datasets.iter().fold(Datasets::NONE, |x, &y| x | y);
             let file = std::fs::File::open(&file)?;
@@ -202,7 +206,11 @@ fn main() -> Result<(), Box<dyn Error>> {
                 DumpFormat::Json => panic!("JSON output is not yet supported!"),
                 DumpFormat::JsonPretty => panic!("JSON output is not yet supported!"),
                 DumpFormat::C => {
-                    let mut dumper = c_dumper::CDumper::new(&btf, verbose);
+                    let cfg = c_dumper::CDumperCfg {
+                        verbose: verbose,
+                        union_as_struct: union_as_struct,
+                    };
+                    let mut dumper = c_dumper::CDumper::new(&btf, cfg);
                     dumper.dump_types(filter)?;
                 }
             }
@@ -253,11 +261,7 @@ fn emit_access_spec(btf: &Btf, rec: &BtfExtOffsetReloc) -> BtfResult<()> {
         match btf.type_by_id(id) {
             BtfType::Struct(t) => {
                 let m = &t.members[spec[i] as usize];
-                if !m.name.is_empty() {
-                    print!(".{}", m.name);
-                } else {
-                    print!(".<anon>");
-                }
+                print!(".{}", m.name);
                 id = btf.skip_mods_and_typedefs(m.type_id);
             }
             BtfType::Union(t) => {
