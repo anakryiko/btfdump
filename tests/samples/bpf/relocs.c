@@ -39,11 +39,12 @@ struct S {
 	} y[4];
 };
 
+extern unsigned __kernel_version;
+
 SEC("__reloc_test")
 int reloc_test(struct S* s) {
-	struct S arr[2];
-	R(arr[1].y[2].x[3].t2);
-	R(arr[0].y[1].x[2]);
+	R(s[1].y[2].x[3].t2);
+	R(s[0].y[1].x[2]);
 
 	R(s->a);
 	R(s->b);
@@ -61,8 +62,10 @@ int reloc_test(struct S* s) {
 	R(s->v);
 	R(s->v.g);
 	R(s->v.h);
-	R(s->w);
-	R(s->w.x);
+	if (__kernel_version > 41608) {
+		R(s->w);
+		R(s->w.x);
+	}
 	R(s->y[1]);
 	R(s->y[2].x[3]);
 	R(s->y[3].x[4].t2);

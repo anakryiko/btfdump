@@ -46,9 +46,10 @@ bitflags! {
         const FUNCINFOS     = 0b0010;
         const LINEINFOS     = 0b0100;
         const OFFSETRELOCS  = 0b1000;
+        const EXTERNRELOCS  = 0b1000;
 
         const RELOCS = Self::OFFSETRELOCS.bits;
-        const EXT    = Self::FUNCINFOS.bits | Self::LINEINFOS.bits | Self::OFFSETRELOCS.bits;
+        const EXT    = Self::FUNCINFOS.bits | Self::LINEINFOS.bits | Self::OFFSETRELOCS.bits | Self::EXTERNRELOCS.bits;
         const ALL    = Self::TYPES.bits | Self::EXT.bits;
     }
 }
@@ -199,6 +200,14 @@ fn main() -> Result<(), Box<dyn Error>> {
                                     Err(e) => print!(" ERROR: {}", e),
                                 };
                                 println!("");
+                            }
+                        }
+                    }
+                    if datasets.contains(Datasets::EXTERNRELOCS) {
+                        for (i, sec) in btf.extern_reloc_secs().iter().enumerate() {
+                            println!("\nExtern reloc section #{} '{}':", i, sec.name);
+                            for (j, rec) in sec.recs.iter().enumerate() {
+                                println!("#{}: {}", j, rec);
                             }
                         }
                     }
