@@ -761,7 +761,8 @@ impl fmt::Display for BtfExtLine {
 pub struct BtfExtOffsetReloc {
     pub insn_off: u32,
     pub type_id: u32,
-    pub access_spec: String,
+    pub access_spec_str: String,
+    pub access_spec: Vec<usize>,
     pub parent_reloc_id: u32,
 }
 
@@ -770,7 +771,7 @@ impl fmt::Display for BtfExtOffsetReloc {
         write!(
             f,
             "off_reloc: insn {} --> (p:[{}]) [{}] + {}",
-            self.insn_off, self.parent_reloc_id, self.type_id, self.access_spec
+            self.insn_off, self.parent_reloc_id, self.type_id, self.access_spec_str
         )
     }
 }
@@ -1308,10 +1309,13 @@ impl Btf {
             for i in 0..sec_hdr.num_info {
                 let off = (i * rec_sz) as usize;
                 let rec = data.pread_with::<btf_ext_offset_reloc>(off, self.endian)?;
+                let access_spec_str = Btf::get_btf_str(strs, rec.access_spec_off)?;
+                let access_spec = Btf::parse_reloc_access_spec(&access_spec_str)?;
                 recs.push(BtfExtOffsetReloc {
                     insn_off: rec.insn_off,
                     type_id: rec.type_id,
-                    access_spec: Btf::get_btf_str(strs, rec.access_spec_off)?,
+                    access_spec_str: access_spec_str,
+                    access_spec: access_spec,
                     parent_reloc_id: rec.parent_reloc_id,
                 });
             }
@@ -1324,6 +1328,13 @@ impl Btf {
             data = &data[(sec_hdr.num_info * rec_sz) as usize..];
         }
         Ok(secs)
+    }
+    fn parse_reloc_access_spec(access_spec_str: &str) -> BtfResult<Vec<usize>> {
+        let mut spec = Vec::new();
+        for p in access_spec_str.split(':') {
+            spec.push(p.parse::<usize>()?);
+        }
+        Ok(spec)
     }
 
     fn load_extern_reloc_secs(

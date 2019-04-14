@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::error::Error;
+use std::io::Write;
 
 use bitflags::bitflags;
 use memmap;
@@ -11,6 +12,7 @@ use std::mem::size_of;
 use structopt::StructOpt;
 
 use btf::c_dumper;
+use btf::relocator::Relocator;
 use btf::types::*;
 use btf::{btf_error, BtfError, BtfResult};
 
@@ -48,8 +50,8 @@ bitflags! {
         const OFFSETRELOCS  = 0b1000;
         const EXTERNRELOCS  = 0b1000;
 
-        const RELOCS = Self::OFFSETRELOCS.bits;
-        const EXT    = Self::FUNCINFOS.bits | Self::LINEINFOS.bits | Self::OFFSETRELOCS.bits | Self::EXTERNRELOCS.bits;
+        const RELOCS = Self::OFFSETRELOCS.bits | Self::EXTERNRELOCS.bits;
+        const EXT    = Self::FUNCINFOS.bits | Self::LINEINFOS.bits | Self::RELOCS.bits;
         const ALL    = Self::TYPES.bits | Self::EXT.bits;
     }
 }
@@ -138,6 +140,16 @@ enum Cmd {
         /// Replace unions with structs (for BPF CORE)
         union_as_struct: bool,
     },
+    #[structopt(name = "reloc")]
+    /// Print detailed relocation information
+    Reloc {
+        #[structopt(parse(from_os_str))]
+        /// Kernel image (target BTF)
+        targ_file: std::path::PathBuf,
+        #[structopt(parse(from_os_str))]
+        /// BPF program (local BTF)
+        local_file: std::path::PathBuf,
+    },
     #[structopt(name = "stat")]
     /// Stats about .BTF and .BTF.ext data
     Stat {
@@ -194,9 +206,10 @@ fn main() -> Result<(), Box<dyn Error>> {
                         for (i, sec) in btf.offset_reloc_secs().iter().enumerate() {
                             println!("\nOffset reloc section #{} '{}':", i, sec.name);
                             for (j, rec) in sec.recs.iter().enumerate() {
-                                print!("#{}: ", j);
-                                match emit_access_spec(&btf, rec) {
-                                    Ok(_) => {}
+                                print!("#{}: {} --> &", j, rec);
+                                std::io::stdout().flush()?;
+                                match Relocator::pretty_print_access_spec(&btf, rec) {
+                                    Ok(s) => print!("{}", s),
                                     Err(e) => print!(" ERROR: {}", e),
                                 };
                                 println!("");
@@ -224,6 +237,30 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
             }
         }
+        Cmd::Reloc {
+            targ_file,
+            local_file,
+        } => {
+            let local_file = std::fs::File::open(&local_file)?;
+            let local_mmap = unsafe { memmap::Mmap::map(&local_file) }?;
+            let local_elf = object::ElfFile::parse(&*local_mmap)?;
+            let local_btf = Btf::load(&local_elf)?;
+            if !local_btf.has_ext() {
+                return btf_error(format!(
+                    "No {} section found for local ELF file, can't perform relocations.",
+                    BTF_EXT_ELF_SEC
+                ));
+            }
+            let targ_file = std::fs::File::open(&targ_file)?;
+            let targ_mmap = unsafe { memmap::Mmap::map(&targ_file) }?;
+            let targ_elf = object::ElfFile::parse(&*targ_mmap)?;
+            let targ_btf = Btf::load(&targ_elf)?;
+            let mut relocator = Relocator::new(&targ_btf, &local_btf);
+            let relocs = relocator.relocate()?;
+            for r in relocs {
+                println!("{}", r);
+            }
+        }
         Cmd::Stat { file } => {
             let file = std::fs::File::open(&file)?;
             let file = unsafe { memmap::Mmap::map(&file) }?;
@@ -232,78 +269,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
     Ok(())
-}
-
-fn emit_access_spec(btf: &Btf, rec: &BtfExtOffsetReloc) -> BtfResult<()> {
-    use std::io::Write;
-    print!("{} --> &", rec);
-    std::io::stdout().flush()?;
-    let spec = parse_reloc_access_spec(&rec.access_spec)?;
-
-    let mut id = rec.type_id;
-    match btf.type_by_id(id) {
-        BtfType::Struct(t) => {
-            print!(
-                "struct {}",
-                if t.name.is_empty() { "<anon>" } else { &t.name }
-            );
-        }
-        BtfType::Union(t) => {
-            print!(
-                "union {}",
-                if t.name.is_empty() { "<anon>" } else { &t.name }
-            );
-        }
-        _ => btf_error(format!(
-            "Unsupported accessor spec: '{}', at #{}, type_id: {}, type: {}",
-            rec.access_spec,
-            0,
-            id,
-            btf.type_by_id(id),
-        ))?,
-    }
-    if spec[0] > 0 {
-        print!("[{}]", spec[0]);
-    }
-
-    for i in 1..spec.len() {
-        match btf.type_by_id(id) {
-            BtfType::Struct(t) => {
-                let m = &t.members[spec[i] as usize];
-                print!(".{}", m.name);
-                id = btf.skip_mods_and_typedefs(m.type_id);
-            }
-            BtfType::Union(t) => {
-                let m = &t.members[spec[i] as usize];
-                if !m.name.is_empty() {
-                    print!(".{}", m.name);
-                } else {
-                    print!(".<anon>");
-                }
-                id = btf.skip_mods_and_typedefs(m.type_id);
-            }
-            BtfType::Array(t) => {
-                print!("[{}]", spec[i] as usize);
-                id = btf.skip_mods_and_typedefs(t.val_type_id);
-            }
-            _ => btf_error(format!(
-                "Unsupported accessor spec: {}, at #{}, type_id: {}, type: {}",
-                rec.access_spec,
-                i,
-                id,
-                btf.type_by_id(id),
-            ))?,
-        }
-    }
-    Ok(())
-}
-
-fn parse_reloc_access_spec(access_spec_str: &str) -> BtfResult<Vec<u32>> {
-    let mut spec = Vec::new();
-    for p in access_spec_str.trim_end_matches(':').split(':') {
-        spec.push(p.parse::<u32>()?);
-    }
-    Ok(spec)
 }
 
 fn create_query_filter(q: QueryArgs) -> BtfResult<Box<dyn Fn(u32, &BtfType) -> bool>> {

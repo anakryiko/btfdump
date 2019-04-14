@@ -1,7 +1,9 @@
 use std::error::Error;
 use std::fmt;
 
+pub mod btf_index;
 pub mod c_dumper;
+pub mod relocator;
 pub mod types;
 
 #[derive(Debug)]
