@@ -770,7 +770,7 @@ impl fmt::Display for BtfExtOffsetReloc {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "off_reloc: insn {} --> (p:[{}]) [{}] + {}",
+            "off_reloc: insn {} --> (p:#{}) [{}] + {}",
             self.insn_off, self.parent_reloc_id, self.type_id, self.access_spec_str
         )
     }
@@ -893,6 +893,17 @@ impl Btf {
             BtfType::Func(_) => 0,
             BtfType::Var(_) => 0,
             BtfType::Datasec(_) => 0,
+        }
+    }
+
+    pub fn skip_mods(&self, mut type_id: u32) -> u32 {
+        loop {
+            match self.type_by_id(type_id) {
+                BtfType::Volatile(t) => type_id = t.type_id,
+                BtfType::Const(t) => type_id = t.type_id,
+                BtfType::Restrict(t) => type_id = t.type_id,
+                _ => return type_id,
+            }
         }
     }
 

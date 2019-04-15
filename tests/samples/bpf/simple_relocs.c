@@ -22,9 +22,6 @@ struct S {
 	};
 };
 
-struct X1 { enum { VAL1, VAL2} e; };
-struct X2 { enum { VAL1, VAL2} e; };
-
 SEC("__simple_reloc_test")
 int simple_reloc_test(struct S* s) {
 	R(s->x);

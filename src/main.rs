@@ -12,7 +12,7 @@ use std::mem::size_of;
 use structopt::StructOpt;
 
 use btf::c_dumper;
-use btf::relocator::Relocator;
+use btf::relocator::{Relocator, RelocatorCfg};
 use btf::types::*;
 use btf::{btf_error, BtfError, BtfResult};
 
@@ -149,6 +149,9 @@ enum Cmd {
         #[structopt(parse(from_os_str))]
         /// BPF program (local BTF)
         local_file: std::path::PathBuf,
+        #[structopt(short = "v", long = "verbose")]
+        /// Output verbose log
+        verbose: bool,
     },
     #[structopt(name = "stat")]
     /// Stats about .BTF and .BTF.ext data
@@ -240,6 +243,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         Cmd::Reloc {
             targ_file,
             local_file,
+            verbose,
         } => {
             let local_file = std::fs::File::open(&local_file)?;
             let local_mmap = unsafe { memmap::Mmap::map(&local_file) }?;
@@ -255,7 +259,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             let targ_mmap = unsafe { memmap::Mmap::map(&targ_file) }?;
             let targ_elf = object::ElfFile::parse(&*targ_mmap)?;
             let targ_btf = Btf::load(&targ_elf)?;
-            let mut relocator = Relocator::new(&targ_btf, &local_btf);
+            let cfg = RelocatorCfg { verbose: verbose };
+            let mut relocator = Relocator::new(&targ_btf, &local_btf, cfg);
             let relocs = relocator.relocate()?;
             for r in relocs {
                 println!("{}", r);
