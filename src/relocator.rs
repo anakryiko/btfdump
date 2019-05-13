@@ -69,8 +69,8 @@ pub struct RelocatorCfg {
 #[derive(Debug)]
 pub struct Relocator<'a, 'b> {
     cfg: RelocatorCfg,
-    targ_btf: &'a Btf,
-    local_btf: &'b Btf,
+    targ_btf: &'a Btf<'a>,
+    local_btf: &'b Btf<'b>,
     targ_index: BtfIndex<'a>,
     type_map: HashMap<u32, Vec<u32>>,
 }
@@ -207,7 +207,7 @@ impl<'a, 'b> Relocator<'a, 'b> {
                         res.push(Accessor::Field {
                             type_id: id,
                             field_idx: spec[i],
-                            field_name: m.name.clone(),
+                            field_name: m.name.to_owned(),
                         });
                     }
                     id = next_id;
@@ -219,7 +219,7 @@ impl<'a, 'b> Relocator<'a, 'b> {
                         res.push(Accessor::Field {
                             type_id: id,
                             field_idx: spec[i],
-                            field_name: m.name.clone(),
+                            field_name: m.name.to_owned(),
                         });
                     }
                     id = next_id;
@@ -377,7 +377,7 @@ impl<'a, 'b> Relocator<'a, 'b> {
         Ok(None)
     }
 
-    fn get_composite_members<'c>(&self, btf: &'c Btf, type_id: u32) -> Option<&'c [BtfMember]> {
+    fn get_composite_members<'c>(&self, btf: &'c Btf, type_id: u32) -> Option<&'c [BtfMember<'c>]> {
         let id = btf.skip_mods(type_id);
         match btf.type_by_id(id) {
             BtfType::Struct(t) => Some(&t.members),

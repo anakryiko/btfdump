@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::cmp::{max, min};
 use std::ffi::CStr;
 use std::fmt;
@@ -216,20 +217,20 @@ impl fmt::Display for BtfIntEncoding {
 }
 
 #[derive(Debug)]
-pub struct BtfInt {
-    pub name: String,
+pub struct BtfInt<'a> {
+    pub name: &'a str,
     pub bits: u32,
     pub offset: u32,
     pub encoding: BtfIntEncoding,
 }
 
-impl fmt::Display for BtfInt {
+impl<'a> fmt::Display for BtfInt<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
             "<{}> '{}' bits:{} off:{}",
             "INT",
-            disp_name(&self.name),
+            disp_name(self.name),
             self.bits,
             self.offset
         )?;
@@ -270,16 +271,16 @@ impl fmt::Display for BtfArray {
 }
 
 #[derive(Debug)]
-pub struct BtfMember {
-    pub name: String,
+pub struct BtfMember<'a> {
+    pub name: &'a str,
     pub type_id: u32,
     pub bit_offset: u32,
     pub bit_size: u8,
 }
 
-impl fmt::Display for BtfMember {
+impl<'a> fmt::Display for BtfMember<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "'{}' off:{}", disp_name(&self.name), self.bit_offset)?;
+        write!(f, "'{}' off:{}", disp_name(self.name), self.bit_offset)?;
         if self.bit_size != 0 {
             write!(f, " sz:{}", self.bit_size)?;
         }
@@ -288,19 +289,19 @@ impl fmt::Display for BtfMember {
 }
 
 #[derive(Debug)]
-pub struct BtfStruct {
-    pub name: String,
+pub struct BtfStruct<'a> {
+    pub name: &'a str,
     pub sz: u32,
-    pub members: Vec<BtfMember>,
+    pub members: Vec<BtfMember<'a>>,
 }
 
-impl fmt::Display for BtfStruct {
+impl<'a> fmt::Display for BtfStruct<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
             "<{}> '{}' sz:{} n:{}",
             "STRUCT",
-            disp_name(&self.name),
+            disp_name(self.name),
             self.sz,
             self.members.len()
         )?;
@@ -312,19 +313,19 @@ impl fmt::Display for BtfStruct {
 }
 
 #[derive(Debug)]
-pub struct BtfUnion {
-    pub name: String,
+pub struct BtfUnion<'a> {
+    pub name: &'a str,
     pub sz: u32,
-    pub members: Vec<BtfMember>,
+    pub members: Vec<BtfMember<'a>>,
 }
 
-impl fmt::Display for BtfUnion {
+impl<'a> fmt::Display for BtfUnion<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
             "<{}> '{}' sz:{} n:{}",
             "UNION",
-            disp_name(&self.name),
+            disp_name(self.name),
             self.sz,
             self.members.len()
         )?;
@@ -336,31 +337,31 @@ impl fmt::Display for BtfUnion {
 }
 
 #[derive(Debug)]
-pub struct BtfEnumValue {
-    pub name: String,
+pub struct BtfEnumValue<'a> {
+    pub name: &'a str,
     pub value: i32,
 }
 
-impl fmt::Display for BtfEnumValue {
+impl<'a> fmt::Display for BtfEnumValue<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} = {}", disp_name(&self.name), self.value)
+        write!(f, "{} = {}", disp_name(self.name), self.value)
     }
 }
 
 #[derive(Debug)]
-pub struct BtfEnum {
-    pub name: String,
+pub struct BtfEnum<'a> {
+    pub name: &'a str,
     pub sz_bits: u32,
-    pub values: Vec<BtfEnumValue>,
+    pub values: Vec<BtfEnumValue<'a>>,
 }
 
-impl fmt::Display for BtfEnum {
+impl<'a> fmt::Display for BtfEnum<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
             "<{}> '{}' sz:{} n:{}",
             "ENUM",
-            disp_name(&self.name),
+            disp_name(self.name),
             self.sz_bits,
             self.values.len()
         )?;
@@ -387,36 +388,36 @@ impl fmt::Display for BtfFwdKind {
 }
 
 #[derive(Debug)]
-pub struct BtfFwd {
-    pub name: String,
+pub struct BtfFwd<'a> {
+    pub name: &'a str,
     pub kind: BtfFwdKind,
 }
 
-impl fmt::Display for BtfFwd {
+impl<'a> fmt::Display for BtfFwd<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
             "<{}> '{}' kind:{}",
             "FWD",
-            disp_name(&self.name),
+            disp_name(self.name),
             self.kind
         )
     }
 }
 
 #[derive(Debug)]
-pub struct BtfTypedef {
-    pub name: String,
+pub struct BtfTypedef<'a> {
+    pub name: &'a str,
     pub type_id: u32,
 }
 
-impl fmt::Display for BtfTypedef {
+impl<'a> fmt::Display for BtfTypedef<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
             "<{}> '{}' --> [{}]",
             "TYPEDEF",
-            disp_name(&self.name),
+            disp_name(self.name),
             self.type_id
         )
     }
@@ -456,42 +457,42 @@ impl fmt::Display for BtfRestrict {
 }
 
 #[derive(Debug)]
-pub struct BtfFunc {
-    pub name: String,
+pub struct BtfFunc<'a> {
+    pub name: &'a str,
     pub proto_type_id: u32,
 }
 
-impl fmt::Display for BtfFunc {
+impl<'a> fmt::Display for BtfFunc<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
             "<{}> '{}' --> [{}]",
             "FUNC",
-            disp_name(&self.name),
+            disp_name(self.name),
             self.proto_type_id
         )
     }
 }
 
 #[derive(Debug)]
-pub struct BtfFuncParam {
-    pub name: String,
+pub struct BtfFuncParam<'a> {
+    pub name: &'a str,
     pub type_id: u32,
 }
 
-impl fmt::Display for BtfFuncParam {
+impl<'a> fmt::Display for BtfFuncParam<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "'{}' --> [{}]", disp_name(&self.name), self.type_id)
+        write!(f, "'{}' --> [{}]", disp_name(self.name), self.type_id)
     }
 }
 
 #[derive(Debug)]
-pub struct BtfFuncProto {
+pub struct BtfFuncProto<'a> {
     pub res_type_id: u32,
-    pub params: Vec<BtfFuncParam>,
+    pub params: Vec<BtfFuncParam<'a>>,
 }
 
-impl fmt::Display for BtfFuncProto {
+impl<'a> fmt::Display for BtfFuncProto<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -523,19 +524,19 @@ impl fmt::Display for BtfVarKind {
 }
 
 #[derive(Debug)]
-pub struct BtfVar {
-    pub name: String,
+pub struct BtfVar<'a> {
+    pub name: &'a str,
     pub type_id: u32,
     pub kind: BtfVarKind,
 }
 
-impl fmt::Display for BtfVar {
+impl<'a> fmt::Display for BtfVar<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
             "<{}> '{}' kind:{} --> [{}]",
             "VAR",
-            disp_name(&self.name),
+            disp_name(self.name),
             self.kind,
             self.type_id
         )
@@ -560,19 +561,19 @@ impl fmt::Display for BtfDatasecVar {
 }
 
 #[derive(Debug)]
-pub struct BtfDatasec {
-    pub name: String,
+pub struct BtfDatasec<'a> {
+    pub name: &'a str,
     pub sz: u32,
     pub vars: Vec<BtfDatasecVar>,
 }
 
-impl fmt::Display for BtfDatasec {
+impl<'a> fmt::Display for BtfDatasec<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
             "<{}> '{}' sz:{} n:{}",
             "DATASEC",
-            disp_name(&self.name),
+            disp_name(self.name),
             self.sz,
             self.vars.len()
         )?;
@@ -584,26 +585,26 @@ impl fmt::Display for BtfDatasec {
 }
 
 #[derive(Debug)]
-pub enum BtfType {
+pub enum BtfType<'a> {
     Void,
-    Int(BtfInt),
+    Int(BtfInt<'a>),
     Ptr(BtfPtr),
     Array(BtfArray),
-    Struct(BtfStruct),
-    Union(BtfUnion),
-    Enum(BtfEnum),
-    Fwd(BtfFwd),
-    Typedef(BtfTypedef),
+    Struct(BtfStruct<'a>),
+    Union(BtfUnion<'a>),
+    Enum(BtfEnum<'a>),
+    Fwd(BtfFwd<'a>),
+    Typedef(BtfTypedef<'a>),
     Volatile(BtfVolatile),
     Const(BtfConst),
     Restrict(BtfRestrict),
-    Func(BtfFunc),
-    FuncProto(BtfFuncProto),
-    Var(BtfVar),
-    Datasec(BtfDatasec),
+    Func(BtfFunc<'a>),
+    FuncProto(BtfFuncProto<'a>),
+    Var(BtfVar<'a>),
+    Datasec(BtfDatasec<'a>),
 }
 
-impl fmt::Display for BtfType {
+impl<'a> fmt::Display for BtfType<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             BtfType::Void => write!(f, "<{}>", "VOID"),
@@ -626,7 +627,7 @@ impl fmt::Display for BtfType {
     }
 }
 
-impl BtfType {
+impl<'a> BtfType<'a> {
     pub fn kind(&self) -> BtfKind {
         match self {
             BtfType::Void => BtfKind::Void,
@@ -720,8 +721,8 @@ impl std::str::FromStr for BtfKind {
 }
 
 #[derive(Debug)]
-pub struct BtfExtSection<T> {
-    pub name: String,
+pub struct BtfExtSection<'a, T> {
+    pub name: &'a str,
     pub rec_sz: usize,
     pub recs: Vec<T>,
 }
@@ -739,15 +740,15 @@ impl fmt::Display for BtfExtFunc {
 }
 
 #[derive(Debug)]
-pub struct BtfExtLine {
+pub struct BtfExtLine<'a> {
     pub insn_off: u32,
-    pub file_name: String,
-    pub src_line: String,
+    pub file_name: &'a str,
+    pub src_line: &'a str,
     pub line_num: u32,
     pub col_num: u32,
 }
 
-impl fmt::Display for BtfExtLine {
+impl<'a> fmt::Display for BtfExtLine<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -758,15 +759,15 @@ impl fmt::Display for BtfExtLine {
 }
 
 #[derive(Debug)]
-pub struct BtfExtOffsetReloc {
+pub struct BtfExtOffsetReloc<'a> {
     pub insn_off: u32,
     pub type_id: u32,
-    pub access_spec_str: String,
+    pub access_spec_str: &'a str,
     pub access_spec: Vec<usize>,
     pub parent_reloc_id: u32,
 }
 
-impl fmt::Display for BtfExtOffsetReloc {
+impl<'a> fmt::Display for BtfExtOffsetReloc<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -777,12 +778,12 @@ impl fmt::Display for BtfExtOffsetReloc {
 }
 
 #[derive(Debug)]
-pub struct BtfExtExternReloc {
+pub struct BtfExtExternReloc<'a> {
     pub insn_off: u32,
-    pub extern_name: String,
+    pub extern_name: &'a str,
 }
 
-impl fmt::Display for BtfExtExternReloc {
+impl<'a> fmt::Display for BtfExtExternReloc<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -793,19 +794,20 @@ impl fmt::Display for BtfExtExternReloc {
 }
 
 #[derive(Debug)]
-pub struct Btf {
+pub struct Btf<'a> {
     endian: scroll::Endian,
-    types: Vec<BtfType>,
+    types: Vec<BtfType<'a>>,
     ptr_sz: u32,
+
     // .BTF.ext stuff
     has_ext: bool,
-    func_secs: Vec<BtfExtSection<BtfExtFunc>>,
-    line_secs: Vec<BtfExtSection<BtfExtLine>>,
-    offset_reloc_secs: Vec<BtfExtSection<BtfExtOffsetReloc>>,
-    extern_reloc_secs: Vec<BtfExtSection<BtfExtExternReloc>>,
+    func_secs: Vec<BtfExtSection<'a, BtfExtFunc>>,
+    line_secs: Vec<BtfExtSection<'a, BtfExtLine<'a>>>,
+    offset_reloc_secs: Vec<BtfExtSection<'a, BtfExtOffsetReloc<'a>>>,
+    extern_reloc_secs: Vec<BtfExtSection<'a, BtfExtExternReloc<'a>>>,
 }
 
-impl Btf {
+impl<'a> Btf<'a> {
     pub fn ptr_sz(&self) -> u32 {
         self.ptr_sz
     }
@@ -919,13 +921,13 @@ impl Btf {
         }
     }
 
-    pub fn load<'data>(elf: &object::ElfFile<'data>) -> BtfResult<Btf> {
+    pub fn load(elf: &object::ElfFile<'a>) -> BtfResult<Btf<'a>> {
         let endian = if elf.is_little_endian() {
             scroll::LE
         } else {
             scroll::BE
         };
-        let mut btf = Btf {
+        let mut btf = Btf::<'a> {
             endian: endian,
             ptr_sz: if elf.elf().is_64 { 8 } else { 4 },
             types: vec![BtfType::Void],
@@ -939,7 +941,10 @@ impl Btf {
         let btf_section = elf
             .section_by_name(BTF_ELF_SEC)
             .ok_or_else(|| Box::new(BtfError::new("No .BTF section found!")))?;
-        let data = btf_section.data();
+        let data = match btf_section.data() {
+            Cow::Borrowed(d) => d,
+            _ => panic!("expected borrowed data"),
+        };
         let hdr = data.pread_with::<btf_header>(0, endian)?;
         if hdr.magic != BTF_MAGIC {
             return btf_error(format!("Invalid BTF magic: {}", hdr.magic));
@@ -965,7 +970,10 @@ impl Btf {
 
         if let Some(ext_section) = elf.section_by_name(BTF_EXT_ELF_SEC) {
             btf.has_ext = true;
-            let ext_data = ext_section.data();
+            let ext_data = match ext_section.data() {
+                Cow::Borrowed(d) => d,
+                _ => panic!("expected borrowed data"),
+            };
             let ext_hdr = ext_data.pread_with::<btf_ext_header_v1>(0, endian)?;
             if ext_hdr.magic != BTF_MAGIC {
                 return btf_error(format!("Invalid .BTF.ext magic: {}", ext_hdr.magic));
@@ -1029,7 +1037,7 @@ impl Btf {
         }
     }
 
-    fn load_type(&self, data: &[u8], strs: &[u8]) -> BtfResult<BtfType> {
+    fn load_type(&self, data: &'a [u8], strs: &'a [u8]) -> BtfResult<BtfType<'a>> {
         let t = data.pread_with::<btf_type>(0, self.endian)?;
         let extra = &data[size_of::<btf_type>()..];
         let kind = (t.info >> 24) & 0xf;
@@ -1059,7 +1067,7 @@ impl Btf {
         }
     }
 
-    fn load_int(&self, t: &btf_type, extra: &[u8], strs: &[u8]) -> BtfResult<BtfType> {
+    fn load_int(&self, t: &btf_type, extra: &'a [u8], strs: &'a [u8]) -> BtfResult<BtfType<'a>> {
         let info = extra.pread_with::<u32>(0, self.endian)?;
         let enc = (info >> 24) & 0xf;
         let off = (info >> 16) & 0xff;
@@ -1080,7 +1088,7 @@ impl Btf {
         }))
     }
 
-    fn load_array(&self, extra: &[u8]) -> BtfResult<BtfType> {
+    fn load_array(&self, extra: &'a [u8]) -> BtfResult<BtfType<'a>> {
         let info = extra.pread_with::<btf_array>(0, self.endian)?;
         Ok(BtfType::Array(BtfArray {
             nelems: info.nelems,
@@ -1089,7 +1097,7 @@ impl Btf {
         }))
     }
 
-    fn load_struct(&self, t: &btf_type, extra: &[u8], strs: &[u8]) -> BtfResult<BtfType> {
+    fn load_struct(&self, t: &btf_type, extra: &'a [u8], strs: &'a [u8]) -> BtfResult<BtfType<'a>> {
         Ok(BtfType::Struct(BtfStruct {
             name: Btf::get_btf_str(strs, t.name_off)?,
             sz: t.type_id, // it's a type/size union in C
@@ -1097,7 +1105,7 @@ impl Btf {
         }))
     }
 
-    fn load_union(&self, t: &btf_type, extra: &[u8], strs: &[u8]) -> BtfResult<BtfType> {
+    fn load_union(&self, t: &btf_type, extra: &'a [u8], strs: &'a [u8]) -> BtfResult<BtfType<'a>> {
         Ok(BtfType::Union(BtfUnion {
             name: Btf::get_btf_str(strs, t.name_off)?,
             sz: t.type_id, // it's a type/size union in C
@@ -1105,7 +1113,12 @@ impl Btf {
         }))
     }
 
-    fn load_members(&self, t: &btf_type, extra: &[u8], strs: &[u8]) -> BtfResult<Vec<BtfMember>> {
+    fn load_members(
+        &self,
+        t: &btf_type,
+        extra: &'a [u8],
+        strs: &'a [u8],
+    ) -> BtfResult<Vec<BtfMember<'a>>> {
         let mut res = Vec::new();
         let mut off: usize = 0;
         let bits = Btf::get_kind(t.info);
@@ -1123,7 +1136,7 @@ impl Btf {
         Ok(res)
     }
 
-    fn load_enum(&self, t: &btf_type, extra: &[u8], strs: &[u8]) -> BtfResult<BtfType> {
+    fn load_enum(&self, t: &btf_type, extra: &'a [u8], strs: &'a [u8]) -> BtfResult<BtfType<'a>> {
         let mut vals = Vec::new();
         let mut off: usize = 0;
 
@@ -1142,10 +1155,9 @@ impl Btf {
         }))
     }
 
-    fn load_fwd(&self, t: &btf_type, strs: &[u8]) -> BtfResult<BtfType> {
+    fn load_fwd(&self, t: &btf_type, strs: &'a [u8]) -> BtfResult<BtfType<'a>> {
         Ok(BtfType::Fwd(BtfFwd {
-            name: Btf::get_btf_str(strs, t.name_off)
-                .or_else(|e| -> BtfResult<String> { Ok(format!("ERR:{}", e)) })?,
+            name: Btf::get_btf_str(strs, t.name_off)?,
             kind: if Btf::get_kind(t.info) {
                 BtfFwdKind::Union
             } else {
@@ -1154,7 +1166,12 @@ impl Btf {
         }))
     }
 
-    fn load_func_proto(&self, t: &btf_type, extra: &[u8], strs: &[u8]) -> BtfResult<BtfType> {
+    fn load_func_proto(
+        &self,
+        t: &btf_type,
+        extra: &'a [u8],
+        strs: &'a [u8],
+    ) -> BtfResult<BtfType<'a>> {
         let mut params = Vec::new();
         let mut off: usize = 0;
 
@@ -1172,7 +1189,7 @@ impl Btf {
         }))
     }
 
-    fn load_var(&self, t: &btf_type, extra: &[u8], strs: &[u8]) -> BtfResult<BtfType> {
+    fn load_var(&self, t: &btf_type, extra: &'a [u8], strs: &'a [u8]) -> BtfResult<BtfType<'a>> {
         let kind = extra.pread_with::<u32>(0, self.endian)?;
         Ok(BtfType::Var(BtfVar {
             name: Btf::get_btf_str(strs, t.name_off)?,
@@ -1187,7 +1204,12 @@ impl Btf {
         }))
     }
 
-    fn load_datasec(&self, t: &btf_type, extra: &[u8], strs: &[u8]) -> BtfResult<BtfType> {
+    fn load_datasec(
+        &self,
+        t: &btf_type,
+        extra: &'a [u8],
+        strs: &'a [u8],
+    ) -> BtfResult<BtfType<'a>> {
         let mut vars = Vec::new();
         let mut off: usize = 0;
 
@@ -1217,9 +1239,9 @@ impl Btf {
 
     fn load_func_secs(
         &self,
-        mut data: &[u8],
-        strs: &[u8],
-    ) -> BtfResult<Vec<BtfExtSection<BtfExtFunc>>> {
+        mut data: &'a [u8],
+        strs: &'a [u8],
+    ) -> BtfResult<Vec<BtfExtSection<'a, BtfExtFunc>>> {
         let rec_sz = data.pread_with::<u32>(0, self.endian)?;
         if rec_sz < size_of::<btf_ext_func_info>() as u32 {
             return btf_error(format!(
@@ -1257,9 +1279,9 @@ impl Btf {
 
     fn load_line_secs(
         &self,
-        mut data: &[u8],
-        strs: &[u8],
-    ) -> BtfResult<Vec<BtfExtSection<BtfExtLine>>> {
+        mut data: &'a [u8],
+        strs: &'a [u8],
+    ) -> BtfResult<Vec<BtfExtSection<'a, BtfExtLine<'a>>>> {
         let rec_sz = data.pread_with::<u32>(0, self.endian)?;
         if rec_sz < size_of::<btf_ext_line_info>() as u32 {
             return btf_error(format!(
@@ -1299,9 +1321,9 @@ impl Btf {
 
     fn load_offset_reloc_secs(
         &self,
-        mut data: &[u8],
-        strs: &[u8],
-    ) -> BtfResult<Vec<BtfExtSection<BtfExtOffsetReloc>>> {
+        mut data: &'a [u8],
+        strs: &'a [u8],
+    ) -> BtfResult<Vec<BtfExtSection<'a, BtfExtOffsetReloc<'a>>>> {
         let rec_sz = data.pread_with::<u32>(0, self.endian)?;
         if rec_sz < size_of::<btf_ext_offset_reloc>() as u32 {
             return btf_error(format!(
@@ -1350,9 +1372,9 @@ impl Btf {
 
     fn load_extern_reloc_secs(
         &self,
-        mut data: &[u8],
-        strs: &[u8],
-    ) -> BtfResult<Vec<BtfExtSection<BtfExtExternReloc>>> {
+        mut data: &'a [u8],
+        strs: &'a [u8],
+    ) -> BtfResult<Vec<BtfExtSection<'a, BtfExtExternReloc<'a>>>> {
         let rec_sz = data.pread_with::<u32>(0, self.endian)?;
         if rec_sz < size_of::<btf_ext_extern_reloc>() as u32 {
             return btf_error(format!(
@@ -1387,8 +1409,8 @@ impl Btf {
         Ok(secs)
     }
 
-    fn get_btf_str(strs: &[u8], off: u32) -> BtfResult<String> {
+    fn get_btf_str(strs: &[u8], off: u32) -> BtfResult<&str> {
         let c_str = unsafe { CStr::from_ptr(&strs[off as usize] as *const u8 as *const i8) };
-        Ok(c_str.to_str()?.to_owned())
+        Ok(c_str.to_str()?)
     }
 }

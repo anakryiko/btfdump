@@ -4,14 +4,14 @@ use crate::types::*;
 
 #[derive(Debug)]
 pub struct BtfIndex<'a> {
-    btf: &'a Btf,
+    btf: &'a Btf<'a>,
     name_index: HashMap<&'a str, Vec<u32>>,
 }
 
 const EMPTY_ID_SLICE: &[u32] = &[];
 
 impl<'a> BtfIndex<'a> {
-    pub fn new(btf: &'a Btf) -> BtfIndex<'a> {
+    pub fn new(btf: &'a Btf<'a>) -> BtfIndex<'a> {
         let mut index = BtfIndex {
             btf: btf,
             name_index: HashMap::new(),

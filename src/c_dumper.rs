@@ -54,14 +54,14 @@ pub struct CDumperCfg {
 }
 
 pub struct CDumper<'a> {
-    btf: &'a Btf,
+    btf: &'a Btf<'a>,
     cfg: CDumperCfg,
     state: Vec<TypeState>,
     names: HashMap<(NamedKind, &'a str), u32>,
 }
 
 impl<'a> CDumper<'a> {
-    pub fn new(btf: &'a Btf, cfg: CDumperCfg) -> CDumper<'a> {
+    pub fn new(btf: &'a Btf<'a>, cfg: CDumperCfg) -> CDumper<'a> {
         let mut dumper = CDumper {
             btf: btf,
             cfg: cfg,
@@ -74,7 +74,7 @@ impl<'a> CDumper<'a> {
         dumper
     }
 
-    pub fn dump_types(&mut self, filter: Box<Fn(u32, &'a BtfType) -> bool>) -> BtfResult<()> {
+    pub fn dump_types(&mut self, filter: Box<Fn(u32, &'a BtfType<'a>) -> bool>) -> BtfResult<()> {
         let mut order = Vec::new();
         for id in 0..self.btf.type_cnt() {
             let bt = self.btf.type_by_id(id);
