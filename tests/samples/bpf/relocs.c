@@ -2,7 +2,7 @@ static int (*bpf_probe_read)(void *dst, int size, void *unsafe_ptr) =
         (void *) 4;
 
 #define SEC(NAME) __attribute__((section(NAME), used))
-#define R(P) do { void *x; bpf_probe_read(x, sizeof(1), (void*)&P); } while (0);
+#define R(P) do { bpf_probe_read(x, sizeof(1), (void*)&P); } while (0);
 
 struct T {
 	int t1;
@@ -10,9 +10,9 @@ struct T {
 };
 typedef struct { int x; } W;
 struct S {
-	const volatile struct {
+	const volatile union {
 		const int a;
-		const struct /*union*/ {
+		const union {
 			char b;
 			struct {
 				char c;
@@ -43,6 +43,8 @@ extern unsigned __kernel_version;
 
 SEC("__reloc_test")
 int reloc_test(struct S* s) {
+	void *x;
+
 	R(s[1].y[2].x[3].t2);
 	R(s[0].y[1].x[2]);
 

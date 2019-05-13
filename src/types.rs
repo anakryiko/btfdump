@@ -176,7 +176,6 @@ pub struct btf_ext_offset_reloc {
     pub insn_off: u32,
     pub type_id: u32,
     pub access_spec_off: u32,
-    pub parent_reloc_id: u32,
 }
 
 #[repr(C)]
@@ -764,15 +763,14 @@ pub struct BtfExtOffsetReloc<'a> {
     pub type_id: u32,
     pub access_spec_str: &'a str,
     pub access_spec: Vec<usize>,
-    pub parent_reloc_id: u32,
 }
 
 impl<'a> fmt::Display for BtfExtOffsetReloc<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "off_reloc: insn {} --> (p:#{}) [{}] + {}",
-            self.insn_off, self.parent_reloc_id, self.type_id, self.access_spec_str
+            "off_reloc: insn {} --> [{}] + {}",
+            self.insn_off, self.type_id, self.access_spec_str
         )
     }
 }
@@ -1349,7 +1347,6 @@ impl<'a> Btf<'a> {
                     type_id: rec.type_id,
                     access_spec_str: access_spec_str,
                     access_spec: access_spec,
-                    parent_reloc_id: rec.parent_reloc_id,
                 });
             }
             secs.push(BtfExtSection::<BtfExtOffsetReloc> {
