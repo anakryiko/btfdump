@@ -42,9 +42,8 @@ struct TypeState {
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 enum NamedKind {
-    Composite,
-    Typedef,
-    Func,
+    Type,
+    Ident,
 }
 
 #[derive(Debug)]
@@ -75,39 +74,41 @@ impl<'a> CDumper<'a> {
     }
 
     pub fn dump_types(&mut self, filter: Box<Fn(u32, &'a BtfType<'a>) -> bool>) -> BtfResult<()> {
-        let mut order = Vec::new();
-        for id in 0..self.btf.type_cnt() {
+        for id in 1..self.btf.type_cnt() {
             let bt = self.btf.type_by_id(id);
-            if self.is_named_def(id) && filter(id, bt) {
-                if self.cfg.verbose {
-                    eprintln!("ORDERING id: {}, type: {}", id, bt);
-                }
-                self.order_type(id, false, &mut order)?;
-            }
-        }
-        if self.cfg.verbose {
-            for (i, &id) in order.iter().enumerate() {
-                eprintln!("ORDER #{} id: {}, type: {}", i, id, self.btf.type_by_id(id));
-            }
-        }
-        // emit struct/union and fwds required by them in correct order
-        for id in order {
-            if self.is_named_def(id) {
-                self.emit_type_fwds(id, id, true)?;
-                self.emit_type_def(id)?;
+            if filter(id, bt) {
+                self.dump_type(id)?;
             }
         }
         Ok(())
     }
 
-    fn order_type(&mut self, id: u32, has_ptr: bool, order: &mut Vec<u32>) -> BtfResult<bool> {
+    pub fn dump_type(&mut self, id: u32) -> BtfResult<()> {
+        let mut order = Vec::new();
         if self.cfg.verbose {
-            eprintln!(
-                "ORDER TYPE id:{}, has_ptr:{}, type:{}, is_def:{}, order_state:{:?}",
+            println!("===================================================");
+            println!("ORDERING id: {}, type: {}", id, self.btf.type_by_id(id));
+        }
+        self.order_type(id, false, &mut order)?;
+        if self.cfg.verbose {
+            for (i, &id) in order.iter().enumerate() {
+                println!("ORDER #{} id: {}, type: {}", i, id, self.btf.type_by_id(id));
+            }
+        }
+        // emit struct/union and fwds required by them in correct order
+        for id in order {
+            self.emit_type(id, 0)?;
+        }
+        Ok(())
+    }
+
+    fn order_type(&mut self, id: u32, has_ptr: bool, order: &mut Vec<u32>) -> BtfResult<bool> {
+        if self.cfg.verbose && self.get_order_state(id) != OrderState::Ordered {
+            println!(
+                "ORDER TYPE id:{}, has_ptr:{}, type:{}, order_state:{:?}",
                 id,
                 has_ptr,
                 self.btf.type_by_id(id),
-                self.is_def(id),
                 self.get_order_state(id)
             );
         }
@@ -121,8 +122,9 @@ impl<'a> CDumper<'a> {
         match self.get_order_state(id) {
             OrderState::NotOrdered => {}
             OrderState::Ordering => match self.btf.type_by_id(id) {
-                BtfType::Struct(t) if has_ptr && !t.name.is_empty() => return Ok(false),
-                BtfType::Union(t) if has_ptr && !t.name.is_empty() => return Ok(false),
+                BtfType::Struct(t) | BtfType::Union(t) if has_ptr && !t.name.is_empty() => {
+                    return Ok(false);
+                }
                 _ => {
                     return btf_error(format!(
                         "Unsatisfiable type cycle, id: {}, type: {}",
@@ -136,11 +138,18 @@ impl<'a> CDumper<'a> {
         }
         match self.btf.type_by_id(id) {
             BtfType::Func(_) | BtfType::Var(_) | BtfType::Datasec(_) => {}
-            BtfType::Void | BtfType::Int(_) => {}
+            BtfType::Void | BtfType::Int(_) => {
+                self.set_order_state(id, OrderState::Ordered);
+                return Ok(false);
+            }
             BtfType::Volatile(t) => return self.order_type(t.type_id, has_ptr, order),
             BtfType::Const(t) => return self.order_type(t.type_id, has_ptr, order),
             BtfType::Restrict(t) => return self.order_type(t.type_id, has_ptr, order),
-            BtfType::Ptr(t) => return self.order_type(t.type_id, true, order),
+            BtfType::Ptr(t) => {
+                let res = self.order_type(t.type_id, true, order);
+                self.set_order_state(id, OrderState::Ordered);
+                return res;
+            }
             BtfType::Array(t) => return self.order_type(t.val_type_id, has_ptr, order),
             BtfType::FuncProto(t) => {
                 let mut is_strong = self.order_type(t.res_type_id, has_ptr, order)?;
@@ -151,7 +160,7 @@ impl<'a> CDumper<'a> {
                 }
                 return Ok(is_strong);
             }
-            BtfType::Struct(t) => {
+            BtfType::Struct(t) | BtfType::Union(t) => {
                 // struct/union is part of strong link, only if it's embedded (so no ptr in a path)
                 // or it's anonymous (so has to be defined inline, even if declared through ptr)
                 if !has_ptr || t.name.is_empty() {
@@ -170,26 +179,18 @@ impl<'a> CDumper<'a> {
                     return Ok(true);
                 }
             }
-            BtfType::Union(t) => {
-                // see above comment for struct
-                if !has_ptr || t.name.is_empty() {
-                    self.set_order_state(id, OrderState::Ordering);
-
-                    for m in &t.members {
-                        self.order_type(m.type_id, false, order)?;
-                    }
-                    // no need to explicitly order anonymous embedded struct
-                    if !t.name.is_empty() {
-                        order.push(id);
-                    }
-
-                    self.set_order_state(id, OrderState::Ordered);
-                    // report this was strong link
-                    return Ok(true);
+            BtfType::Enum(t) => {
+                if !t.name.is_empty() {
+                    order.push(id);
                 }
+                self.set_order_state(id, OrderState::Ordered);
+                // report this was strong link
+                return Ok(true);
             }
-            BtfType::Enum(_) | BtfType::Fwd(_) => {
-                order.push(id);
+            BtfType::Fwd(t) => {
+                if !t.name.is_empty() {
+                    order.push(id);
+                }
                 self.set_order_state(id, OrderState::Ordered);
                 // report this was strong link
                 return Ok(true);
@@ -207,227 +208,129 @@ impl<'a> CDumper<'a> {
         Ok(false)
     }
 
-    fn emit_type_fwds(&mut self, id: u32, cont_id: u32, is_def: bool) -> BtfResult<()> {
+    fn emit_type(&mut self, id: u32, cont_id: u32) -> BtfResult<()> {
+        let top_level_def = cont_id == 0;
         if self.cfg.verbose {
             println!(
-                "EMIT_TYPE_FWDS id: {}, cont_id: {}, is_def: {}, state: {:?}, type: {}",
+                "EMIT_TYPE id: {}, cont_id: {}, is_def: {}, state: {:?}, type: {}",
                 id,
                 cont_id,
-                is_def,
+                top_level_def,
                 self.get_emit_state(id),
                 self.btf.type_by_id(id)
             );
         }
         match self.get_emit_state(id) {
             EmitState::NotEmitted => {}
-            EmitState::Emitting => match self.btf.type_by_id(id) {
-                BtfType::Struct(t) => {
-                    // fwd was already emitted or no need for fwd declare if we are referencing
-                    // a struct/union we are part of
-                    if self.get_fwd_emitted(id) || id == cont_id {
-                        return Ok(());
-                    }
-                    if !t.name.is_empty() {
-                        if self.emit_struct_fwd(id, t) {
-                            println!(";\n");
-                        }
-                        self.set_fwd_emitted(id, true);
-                        return Ok(());
-                    } else {
-                        return btf_error(format!(
-                            "anonymous struct loop, id: {}, type: {}",
-                            id,
-                            self.btf.type_by_id(id)
-                        ));
-                    }
-                }
-                BtfType::Union(t) => {
-                    // fwd was already emitted or no need for fwd declare if we are referencing
-                    // a struct/union we are part of
-                    if self.get_fwd_emitted(id) || id == cont_id {
-                        return Ok(());
-                    }
-                    if !t.name.is_empty() {
-                        if self.emit_union_fwd(id, t) {
-                            println!(";\n");
-                        }
-                        self.set_fwd_emitted(id, true);
-                        return Ok(());
-                    } else {
-                        return btf_error(format!(
-                            "anonymous union loop, id: {}, type: {}",
-                            id,
-                            self.btf.type_by_id(id)
-                        ));
-                    }
-                }
-                BtfType::Typedef(t) => {
-                    // for typedef fwd_emitted means typedef definition was emitted, but it can be
-                    // used only for "weak" references through pointer only
-                    if self.get_fwd_emitted(id) {
-                        return Ok(());
-                    }
-                    self.emit_typedef_def(id, t, 0);
-                    println!("\n");
-                    self.set_fwd_emitted(id, true);
+            EmitState::Emitting => {
+                if self.get_fwd_emitted(id) {
                     return Ok(());
                 }
-                _ => return Ok(()),
-            },
+                match self.btf.type_by_id(id) {
+                    BtfType::Struct(t) | BtfType::Union(t) => {
+                        // fwd was already emitted or no need for fwd declare if we are referencing
+                        // a struct/union we are part of
+                        if id == cont_id {
+                            return Ok(());
+                        }
+                        if t.name.is_empty() {
+                            return btf_error(format!(
+                                "anonymous struct loop, id: {}, type: {}",
+                                id,
+                                self.btf.type_by_id(id)
+                            ));
+                        }
+                        if self.emit_composite_fwd(id, t) {
+                            println!(";\n");
+                        }
+                        self.set_fwd_emitted(id, true);
+                        return Ok(());
+                    }
+                    BtfType::Typedef(t) => {
+                        // for typedef fwd_emitted means typedef definition was emitted, but it can
+                        // be used only for "weak" references through pointer only
+                        if self.emit_typedef_def(id, t, 0) {
+                            println!(";\n");
+                        }
+                        self.set_fwd_emitted(id, true);
+                        return Ok(());
+                    }
+                    _ => return Ok(()),
+                };
+            }
             EmitState::Emitted => return Ok(()),
         }
+
+        if top_level_def && self.btf.type_by_id(id).name().is_empty() {
+            return btf_error(format!(
+                "unexpected nameless definition, id: {}, type: {}",
+                id,
+                self.btf.type_by_id(id)
+            ));
+        }
+
         match self.btf.type_by_id(id) {
             BtfType::Func(_) | BtfType::Var(_) | BtfType::Datasec(_) => {}
             BtfType::Void | BtfType::Int(_) => {}
-            BtfType::Volatile(t) => self.emit_type_fwds(t.type_id, cont_id, false)?,
-            BtfType::Const(t) => self.emit_type_fwds(t.type_id, cont_id, false)?,
-            BtfType::Restrict(t) => self.emit_type_fwds(t.type_id, cont_id, false)?,
-            BtfType::Ptr(t) => self.emit_type_fwds(t.type_id, cont_id, false)?,
-            BtfType::Array(t) => self.emit_type_fwds(t.val_type_id, cont_id, false)?,
+            BtfType::Volatile(t) => self.emit_type(t.type_id, cont_id)?,
+            BtfType::Const(t) => self.emit_type(t.type_id, cont_id)?,
+            BtfType::Restrict(t) => self.emit_type(t.type_id, cont_id)?,
+            BtfType::Ptr(t) => self.emit_type(t.type_id, cont_id)?,
+            BtfType::Array(t) => self.emit_type(t.val_type_id, cont_id)?,
             BtfType::FuncProto(t) => {
-                self.emit_type_fwds(t.res_type_id, cont_id, false)?;
+                self.emit_type(t.res_type_id, cont_id)?;
                 for p in &t.params {
-                    self.emit_type_fwds(p.type_id, cont_id, false)?;
+                    self.emit_type(p.type_id, cont_id)?;
                 }
             }
-            BtfType::Struct(t) => {
+            BtfType::Struct(t) | BtfType::Union(t) => {
                 self.set_emit_state(id, EmitState::Emitting);
-                if is_def || t.name.is_empty() {
+                if top_level_def || t.name.is_empty() {
                     // top-level struct definition or embedded anonymous struct, ensure all field
                     // types have their fwds declared
                     for m in &t.members {
-                        self.emit_type_fwds(
-                            m.type_id,
-                            if t.name.is_empty() { cont_id } else { id },
-                            false,
-                        )?;
+                        self.emit_type(m.type_id, if t.name.is_empty() { cont_id } else { id })?;
                     }
                 } else if !self.get_fwd_emitted(id) && id != cont_id {
-                    if self.emit_struct_fwd(id, t) {
+                    if self.emit_composite_fwd(id, t) {
                         println!(";\n");
                     }
                     self.set_fwd_emitted(id, true);
                 }
-                // XXX: just emit definition directly
-                self.set_emit_state(id, EmitState::NotEmitted);
-            }
-            BtfType::Union(t) => {
-                self.set_emit_state(id, EmitState::Emitting);
-                if is_def || t.name.is_empty() {
-                    // top-level union definition or embedded anonymous union, ensure all field
-                    // types have their fwds declared
-                    for m in &t.members {
-                        self.emit_type_fwds(
-                            m.type_id,
-                            if t.name.is_empty() { cont_id } else { id },
-                            false,
-                        )?;
-                    }
-                } else if !self.get_fwd_emitted(id) && id != cont_id {
-                    if self.emit_union_fwd(id, t) {
-                        println!(";\n");
-                    }
-                    self.set_fwd_emitted(id, true);
+                if top_level_def {
+                    self.emit_composite_def(id, t, 0);
+                    println!(";\n");
+                    self.set_emit_state(id, EmitState::Emitted);
+                } else {
+                    self.set_emit_state(id, EmitState::NotEmitted);
                 }
-                // XXX: just emit definition directly
-                self.set_emit_state(id, EmitState::NotEmitted);
             }
             BtfType::Enum(t) => {
-                self.set_emit_state(id, EmitState::Emitting);
-                if !t.name.is_empty() {
+                if top_level_def {
                     self.emit_enum_def(id, t, 0);
                     println!(";\n");
                 }
                 self.set_emit_state(id, EmitState::Emitted);
             }
-            BtfType::Fwd(_) => {
-                self.set_emit_state(id, EmitState::Emitting);
-                self.emit_type_decl(id, "", 0);
+            BtfType::Fwd(t) => {
+                self.emit_fwd_def(id, t);
                 println!(";\n");
                 self.set_emit_state(id, EmitState::Emitted);
             }
             BtfType::Typedef(t) => {
                 self.set_emit_state(id, EmitState::Emitting);
-                self.emit_type_fwds(t.type_id, id, false)?;
+                self.emit_type(t.type_id, id)?;
                 if !self.get_fwd_emitted(id) {
                     // emit typedef right now, if someone depends on it "weakly" (though pointer)
-                    self.emit_typedef_def(id, t, 0);
-                    println!(";\n");
+                    if self.emit_typedef_def(id, t, 0) {
+                        println!(";\n");
+                    }
                     self.set_fwd_emitted(id, true);
                 }
                 self.set_emit_state(id, EmitState::Emitted);
             }
         }
         Ok(())
-    }
-
-    fn emit_type_def(&mut self, id: u32) -> BtfResult<()> {
-        match self.get_emit_state(id) {
-            EmitState::NotEmitted => {}
-            EmitState::Emitting => {
-                return btf_error(format!(
-                    "unexpected emit_type_def loop at id:{}, type:{}",
-                    id,
-                    self.btf.type_by_id(id)
-                ));
-            }
-            EmitState::Emitted => return Ok(()),
-        }
-        match self.btf.type_by_id(id) {
-            BtfType::Struct(t) if !t.name.is_empty() => {
-                self.emit_struct_def(id, t, 0);
-                println!(";\n");
-            }
-            BtfType::Union(t) if !t.name.is_empty() => {
-                self.emit_union_def(id, t, 0);
-                println!(";\n");
-            }
-            BtfType::Enum(t) if !t.name.is_empty() => {
-                self.emit_enum_def(id, t, 0);
-                println!(";\n");
-            }
-            BtfType::Fwd(t) if !t.name.is_empty() => {
-                self.emit_fwd_def(id, t);
-                println!(";\n");
-            }
-            BtfType::Typedef(t) if !t.name.is_empty() => {
-                if !self.get_fwd_emitted(id) {
-                    self.emit_typedef_def(id, t, 0);
-                    println!(";\n");
-                }
-            }
-            _ => {
-                return btf_error(format!(
-                    "unexpected definition at id:{}, type:{}",
-                    id,
-                    self.btf.type_by_id(id)
-                ));
-            }
-        }
-        self.set_emit_state(id, EmitState::Emitted);
-        Ok(())
-    }
-
-    fn is_def(&self, id: u32) -> bool {
-        match self.btf.type_by_id(id) {
-            BtfType::Struct(_)
-            | BtfType::Union(_)
-            | BtfType::Enum(_)
-            | BtfType::Fwd(_)
-            | BtfType::Typedef(_) => true,
-            _ => false,
-        }
-    }
-
-    fn is_named_def(&self, id: u32) -> bool {
-        match self.btf.type_by_id(id) {
-            BtfType::Struct(t) if !t.name.is_empty() => true,
-            BtfType::Union(t) if !t.name.is_empty() => true,
-            BtfType::Enum(t) if !t.name.is_empty() => true,
-            BtfType::Fwd(t) if !t.name.is_empty() => true,
-            BtfType::Typedef(t) if !t.name.is_empty() => true,
-            _ => false,
-        }
     }
 
     fn get_fwd_emitted(&self, id: u32) -> bool {
@@ -454,21 +357,39 @@ impl<'a> CDumper<'a> {
         self.state[id as usize].emit_state = state;
     }
 
-    fn emit_struct_fwd(&mut self, id: u32, t: &BtfStruct) -> bool {
+    fn emit_composite_fwd(&mut self, id: u32, t: &'a BtfComposite) -> bool {
         if NAMES_BLACKLIST.is_match(&t.name) {
             return false;
         }
-        print!("struct {}", self.resolve_name(id));
+        let keyword = if !t.is_struct && self.cfg.union_as_struct {
+            "struct /*union*/"
+        } else if t.is_struct {
+            "struct"
+        } else {
+            "union"
+        };
+        print!(
+            "{} {}",
+            keyword,
+            self.resolve_type_name(NamedKind::Type, id, t.name)
+        );
         return true;
     }
 
-    fn emit_struct_def(&mut self, id: u32, t: &BtfStruct, lvl: usize) {
+    fn emit_composite_def(&mut self, id: u32, t: &'a BtfComposite, lvl: usize) {
         if NAMES_BLACKLIST.is_match(&t.name) {
             return;
         }
+        let keyword = if !t.is_struct && self.cfg.union_as_struct {
+            "struct /*union*/"
+        } else if t.is_struct {
+            "struct"
+        } else {
+            "union"
+        };
         let packed = self.is_struct_packed(id, t);
-        let name = self.resolve_name(id);
-        print!("struct{}{} {{", sep(&name), name);
+        let name = self.resolve_type_name(NamedKind::Type, id, t.name);
+        print!("{}{}{} {{", keyword, sep(&name), name);
         let mut offset = 0;
         for m in &t.members {
             self.emit_bit_padding(offset, m, packed, lvl + 1);
@@ -491,6 +412,25 @@ impl<'a> CDumper<'a> {
         if packed {
             print!(" __attribute__((packed))");
         }
+    }
+
+    fn is_struct_packed(&self, id: u32, t: &BtfComposite) -> bool {
+        if !t.is_struct {
+            return false;
+        }
+        // size of a struct has to be a multiple of its alignment
+        if t.sz % self.btf.get_align_of(id) != 0 {
+            return true;
+        }
+        // all the non-bitfield fields have to be naturally aligned
+        for m in &t.members {
+            if m.bit_size == 0 && m.bit_offset % (self.btf.get_align_of(m.type_id) * 8) != 0 {
+                return true;
+            }
+        }
+        // even if original struct was marked as packed, we haven't detected any misalignment, so
+        // there is no effect of packedness for given struct
+        return false;
     }
 
     fn emit_bit_padding(&self, offset: u32, m: &BtfMember, packed: bool, lvl: usize) {
@@ -531,83 +471,29 @@ impl<'a> CDumper<'a> {
         }
     }
 
-    fn is_struct_packed(&self, id: u32, t: &BtfStruct) -> bool {
-        // size of a struct has to be a multiple of its alignment
-        if t.sz % self.btf.get_align_of(id) != 0 {
-            return true;
-        }
-        // all the non-bitfield fields have to be naturally aligned
-        for m in &t.members {
-            if m.bit_size == 0 && m.bit_offset % (self.btf.get_align_of(m.type_id) * 8) != 0 {
-                return true;
-            }
-        }
-        // even if original struct was marked as packed, we haven't detected any misalignment, so
-        // there is no effect of packedness for given struct
-        return false;
-    }
-
-    fn emit_union_fwd(&mut self, id: u32, t: &BtfUnion) -> bool {
-        if NAMES_BLACKLIST.is_match(&t.name) {
-            return false;
-        }
-        let keyword = if self.cfg.union_as_struct {
-            "struct /*union*/"
-        } else {
-            "union"
-        };
-        print!("{} {}", keyword, self.resolve_name(id));
-        return true;
-    }
-
-    fn emit_union_def(&mut self, id: u32, t: &BtfUnion, lvl: usize) {
-        if NAMES_BLACKLIST.is_match(&t.name) {
-            return;
-        }
-        let keyword = if self.cfg.union_as_struct {
-            "struct /*union*/"
-        } else {
-            "union"
-        };
-        let name = self.resolve_name(id);
-        print!("{}{}{} {{", keyword, sep(&name), name);
-        for m in &t.members {
-            print!("\n{}", pfx(lvl + 1));
-            self.emit_type_decl(m.type_id, &m.name, lvl + 1);
-            if m.bit_size > 0 {
-                print!(": {}", m.bit_size);
-            }
-            print!(";");
-        }
-        if !t.members.is_empty() {
-            print!("\n");
-        }
-        print!("{}}}", pfx(lvl));
-    }
-
     fn emit_enum_def(&mut self, id: u32, t: &'a BtfEnum, lvl: usize) {
         if NAMES_BLACKLIST.is_match(&t.name) {
             return;
         }
-        let name = self.resolve_name(id);
+        let name = self.resolve_type_name(NamedKind::Type, id, t.name);
         if t.values.is_empty() {
             // enum fwd
             print!("enum{}{}", sep(&name), name);
         } else {
             print!("enum{}{} {{", sep(&name), name);
             for v in &t.values {
-                let val_uniq_name = self.resolve_enum_val_name(id, t, &v.name);
+                let val_uniq_name = self.resolve_name(NamedKind::Ident, &v.name);
                 print!("\n{}{} = {},", pfx(lvl + 1), &val_uniq_name, v.value);
             }
             print!("\n{}}}", pfx(lvl));
         }
     }
 
-    fn emit_fwd_def(&mut self, id: u32, t: &BtfFwd) {
+    fn emit_fwd_def(&mut self, id: u32, t: &'a BtfFwd) {
         if NAMES_BLACKLIST.is_match(&t.name) {
             return;
         }
-        let name = self.resolve_name(id);
+        let name = self.resolve_type_name(NamedKind::Type, id, t.name);
         match t.kind {
             BtfFwdKind::Struct => print!("struct {}", name),
             BtfFwdKind::Union => {
@@ -620,13 +506,14 @@ impl<'a> CDumper<'a> {
         }
     }
 
-    fn emit_typedef_def(&mut self, id: u32, t: &BtfTypedef, lvl: usize) {
+    fn emit_typedef_def(&mut self, id: u32, t: &'a BtfTypedef, lvl: usize) -> bool {
         if NAMES_BLACKLIST.is_match(&t.name) {
-            return;
+            return false;
         }
-        let name = self.resolve_name(id);
+        let name = self.resolve_type_name(NamedKind::Ident, id, t.name);
         print!("typedef ");
         self.emit_type_decl(t.type_id, &name, lvl);
+        return true;
     }
 
     fn emit_type_decl(&mut self, mut id: u32, fname: &str, lvl: usize) {
@@ -682,20 +569,12 @@ impl<'a> CDumper<'a> {
                     self.emit_mods(&mut chain);
                     print!("{}", t.name);
                 }
-                BtfType::Struct(t) => {
+                BtfType::Struct(t) | BtfType::Union(t) => {
                     self.emit_mods(&mut chain);
                     if t.name.is_empty() {
-                        self.emit_struct_def(id, t, lvl); // inline anonymous struct
+                        self.emit_composite_def(id, t, lvl); // inline anonymous struct
                     } else {
-                        self.emit_struct_fwd(id, t);
-                    }
-                }
-                BtfType::Union(t) => {
-                    self.emit_mods(&mut chain);
-                    if t.name.is_empty() {
-                        self.emit_union_def(id, t, lvl); // inline anonymous union
-                    } else {
-                        self.emit_union_fwd(id, t);
+                        self.emit_composite_fwd(id, t);
                     }
                 }
                 BtfType::Enum(t) => {
@@ -703,7 +582,7 @@ impl<'a> CDumper<'a> {
                     if t.name.is_empty() {
                         self.emit_enum_def(id, t, lvl); // inline anonymous enum
                     } else {
-                        let uniq_name = self.resolve_name(id);
+                        let uniq_name = self.resolve_type_name(NamedKind::Type, id, t.name);
                         print!("enum {}", &uniq_name);
                     }
                 }
@@ -711,9 +590,9 @@ impl<'a> CDumper<'a> {
                     self.emit_mods(&mut chain);
                     self.emit_fwd_def(id, t);
                 }
-                BtfType::Typedef(_) => {
+                BtfType::Typedef(t) => {
                     self.emit_mods(&mut chain);
-                    let uniq_name = self.resolve_name(id);
+                    let uniq_name = self.resolve_type_name(NamedKind::Ident, id, t.name);
                     print!("{}", &uniq_name);
                 }
                 BtfType::Ptr(_) => {
@@ -747,12 +626,20 @@ impl<'a> CDumper<'a> {
                             }
                         }
                     }
-                    if chain.is_empty() {
-                        self.emit_name(fname, last_was_ptr);
-                    } else {
-                        print!(" (");
+                    if let Some(&next_id) = chain.last() {
+                        let t = self.btf.type_by_id(next_id);
+                        if !fname.is_empty() && !last_was_ptr {
+                            print!(" ");
+                        }
+                        if t.kind() != BtfKind::Array {
+                            print!("(");
+                        }
                         self.emit_type_chain(chain, fname, lvl);
-                        print!(")");
+                        if t.kind() != BtfKind::Array {
+                            print!(")");
+                        }
+                    } else {
+                        self.emit_name(fname, last_was_ptr);
                     }
                     print!("[{}]", t.nelems);
                     return;
@@ -767,23 +654,25 @@ impl<'a> CDumper<'a> {
                         print!(")");
                     }
                     print!("(");
+                    //
                     // Clang for BPF target generates func_proto with no args as a func_proto with
                     // a single void arg (i.e., <ret-type> (*f)(void) vs just <ret_type> (*f)()).
                     // We are going to pretend there are no args for such case.
                     let arg_cnt = t.params.len();
-                    if arg_cnt != 1 || t.params[0].type_id != 0 {
-                        let mut idx = 0;
-                        for p in &t.params {
-                            if idx > 0 {
-                                print!(", ");
-                            }
-                            // func_proto with vararg has last arg of type 'void'
-                            if idx == arg_cnt - 1 && t.params[arg_cnt - 1].type_id == 0 {
-                                print!("...");
-                            } else {
-                                self.emit_type_decl(p.type_id, &p.name, lvl);
-                            }
-                            idx = idx + 1;
+                    if arg_cnt == 1 && t.params[0].type_id == 0 {
+                        print!(")");
+                        return;
+                    }
+
+                    for (i, p) in t.params.iter().enumerate() {
+                        if i > 0 {
+                            print!(", ");
+                        }
+                        // func_proto with vararg has last arg of type 'void'
+                        if i == arg_cnt - 1 && t.params[arg_cnt - 1].type_id == 0 {
+                            print!("...");
+                        } else {
+                            self.emit_type_decl(p.type_id, &p.name, lvl);
                         }
                     }
                     print!(")");
@@ -834,19 +723,7 @@ impl<'a> CDumper<'a> {
         }
     }
 
-    fn resolve_name(&mut self, id: u32) -> String {
-        match self.btf.type_by_id(id) {
-            BtfType::Struct(t) => self.resolve_kind_name(NamedKind::Composite, id, &t.name),
-            BtfType::Union(t) => self.resolve_kind_name(NamedKind::Composite, id, &t.name),
-            BtfType::Enum(t) => self.resolve_kind_name(NamedKind::Composite, id, &t.name),
-            BtfType::Fwd(t) => self.resolve_kind_name(NamedKind::Composite, id, &t.name),
-            BtfType::Typedef(t) => self.resolve_kind_name(NamedKind::Typedef, id, &t.name),
-            BtfType::Func(t) => self.resolve_kind_name(NamedKind::Func, id, &t.name),
-            _ => EMPTY.to_owned(),
-        }
-    }
-
-    fn resolve_kind_name(&mut self, kind: NamedKind, id: u32, name: &'a str) -> String {
+    fn resolve_type_name(&mut self, kind: NamedKind, id: u32, name: &'a str) -> String {
         if name.is_empty() {
             return EMPTY.to_owned();
         }
@@ -855,25 +732,21 @@ impl<'a> CDumper<'a> {
             let version = self.names.entry((kind, name)).or_insert(0);
             *version += 1;
             if *version == 1 {
-                s.name = name.to_string();
+                s.name = name.to_string()
             } else {
-                s.name = format!("{}__{}", name, version);
+                s.name = format!("{}___{}", name, version)
             }
         }
         s.name.clone()
     }
 
-    fn resolve_enum_val_name(&mut self, id: u32, t: &BtfEnum, name: &'a str) -> String {
-        // enum values are in the same namespace as typedefs
-        let version = self.names.entry((NamedKind::Typedef, name)).or_insert(0);
+    fn resolve_name(&mut self, kind: NamedKind, name: &'a str) -> String {
+        let version = self.names.entry((kind, name)).or_insert(0);
         *version += 1;
         if *version == 1 {
             name.to_string()
-        } else if !t.name.is_empty() {
-            let uniq_name = self.resolve_name(id);
-            format!("{}__{}", name, &uniq_name)
         } else {
-            format!("{}__{}", name, version)
+            format!("{}___{}", name, version)
         }
     }
 }
@@ -885,21 +758,7 @@ lazy_static! {
 
 const EMPTY: &str = "";
 const SPACE: &str = " ";
-const PREFIXES: [&str; 13] = [
-    "",
-    "\t",
-    "\t\t",
-    "\t\t\t",
-    "\t\t\t\t",
-    "\t\t\t\t\t",
-    "\t\t\t\t\t\t",
-    "\t\t\t\t\t\t\t",
-    "\t\t\t\t\t\t\t\t",
-    "\t\t\t\t\t\t\t\t\t",
-    "\t\t\t\t\t\t\t\t\t\t",
-    "\t\t\t\t\t\t\t\t\t\t\t",
-    "\t\t\t\t\t\t\t\t\t\t\t\t",
-];
+const PREFIXES: &str = "\t\t\t\t\t\t\t\t\t\t\t\t";
 
 fn sep(name: &str) -> &str {
     if name.is_empty() {
@@ -911,8 +770,8 @@ fn sep(name: &str) -> &str {
 
 fn pfx(lvl: usize) -> &'static str {
     if lvl >= PREFIXES.len() {
-        PREFIXES[PREFIXES.len() - 1]
+        PREFIXES
     } else {
-        PREFIXES[lvl]
+        &PREFIXES[0..lvl]
     }
 }

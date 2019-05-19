@@ -396,7 +396,7 @@ impl<'a, 'b> Relocator<'a, 'b> {
         let id = btf.skip_mods_and_typedefs(type_id);
         Ok(match btf.type_by_id(id) {
             BtfType::Int(t) if t.offset == 0 && t.bits % 8 == 0 => t.bits / 8,
-            BtfType::Enum(t) if t.sz_bits % 8 == 0 => t.sz_bits / 8,
+            BtfType::Enum(t) => t.sz,
             BtfType::Struct(t) => t.sz,
             BtfType::Union(t) => t.sz,
             BtfType::Array(t) => t.nelems * Relocator::type_size(btf, t.val_type_id)?,

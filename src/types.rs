@@ -16,13 +16,6 @@ pub const BTF_EXT_ELF_SEC: &str = ".BTF.ext";
 pub const BTF_MAGIC: u16 = 0xeB9F;
 pub const BTF_VERSION: u8 = 1;
 
-//const BTF_MAX_TYPE: u32 = 0xffff;
-//const BTF_MAX_NAME_OFFSET: u32 = 0xffff;
-//const BTF_MAX_VLEN: u32 = 0xffff;
-
-//const BTF_MAX_NR_TYPES: u32 = 0x7fffffff;
-//const BTF_MAX_STR_OFFSET: u32 = 0x7fffffff;
-
 pub const BTF_KIND_UNKN: u32 = 0;
 pub const BTF_KIND_INT: u32 = 1;
 pub const BTF_KIND_PTR: u32 = 2;
@@ -288,42 +281,19 @@ impl<'a> fmt::Display for BtfMember<'a> {
 }
 
 #[derive(Debug)]
-pub struct BtfStruct<'a> {
+pub struct BtfComposite<'a> {
+    pub is_struct: bool,
     pub name: &'a str,
     pub sz: u32,
     pub members: Vec<BtfMember<'a>>,
 }
 
-impl<'a> fmt::Display for BtfStruct<'a> {
+impl<'a> fmt::Display for BtfComposite<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
             "<{}> '{}' sz:{} n:{}",
-            "STRUCT",
-            disp_name(self.name),
-            self.sz,
-            self.members.len()
-        )?;
-        for i in 0..self.members.len() {
-            write!(f, "\n\t#{:02} {}", i, self.members[i])?;
-        }
-        Ok(())
-    }
-}
-
-#[derive(Debug)]
-pub struct BtfUnion<'a> {
-    pub name: &'a str,
-    pub sz: u32,
-    pub members: Vec<BtfMember<'a>>,
-}
-
-impl<'a> fmt::Display for BtfUnion<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "<{}> '{}' sz:{} n:{}",
-            "UNION",
+            if self.is_struct { "STRUCT" } else { "UNION" },
             disp_name(self.name),
             self.sz,
             self.members.len()
@@ -350,7 +320,7 @@ impl<'a> fmt::Display for BtfEnumValue<'a> {
 #[derive(Debug)]
 pub struct BtfEnum<'a> {
     pub name: &'a str,
-    pub sz_bits: u32,
+    pub sz: u32,
     pub values: Vec<BtfEnumValue<'a>>,
 }
 
@@ -361,7 +331,7 @@ impl<'a> fmt::Display for BtfEnum<'a> {
             "<{}> '{}' sz:{} n:{}",
             "ENUM",
             disp_name(self.name),
-            self.sz_bits,
+            self.sz,
             self.values.len()
         )?;
         for i in 0..self.values.len() {
@@ -589,8 +559,8 @@ pub enum BtfType<'a> {
     Int(BtfInt<'a>),
     Ptr(BtfPtr),
     Array(BtfArray),
-    Struct(BtfStruct<'a>),
-    Union(BtfUnion<'a>),
+    Struct(BtfComposite<'a>),
+    Union(BtfComposite<'a>),
     Enum(BtfEnum<'a>),
     Fwd(BtfFwd<'a>),
     Typedef(BtfTypedef<'a>),
@@ -854,7 +824,7 @@ impl<'a> Btf<'a> {
             BtfType::FuncProto(_) => 0,
             BtfType::Struct(t) => t.sz,
             BtfType::Union(t) => t.sz,
-            BtfType::Enum(t) => (t.sz_bits + 7) / 8,
+            BtfType::Enum(t) => t.sz,
             BtfType::Fwd(_) => 0,
             BtfType::Typedef(t) => self.get_size_of(t.type_id),
             BtfType::Func(_) => 0,
@@ -887,7 +857,7 @@ impl<'a> Btf<'a> {
                 }
                 align
             }
-            BtfType::Enum(t) => min(self.ptr_sz, (t.sz_bits + 7) / 8),
+            BtfType::Enum(t) => min(self.ptr_sz, t.sz),
             BtfType::Fwd(_) => 0,
             BtfType::Typedef(t) => self.get_align_of(t.type_id),
             BtfType::Func(_) => 0,
@@ -1096,7 +1066,8 @@ impl<'a> Btf<'a> {
     }
 
     fn load_struct(&self, t: &btf_type, extra: &'a [u8], strs: &'a [u8]) -> BtfResult<BtfType<'a>> {
-        Ok(BtfType::Struct(BtfStruct {
+        Ok(BtfType::Struct(BtfComposite {
+            is_struct: true,
             name: Btf::get_btf_str(strs, t.name_off)?,
             sz: t.type_id, // it's a type/size union in C
             members: self.load_members(t, extra, strs)?,
@@ -1104,7 +1075,8 @@ impl<'a> Btf<'a> {
     }
 
     fn load_union(&self, t: &btf_type, extra: &'a [u8], strs: &'a [u8]) -> BtfResult<BtfType<'a>> {
-        Ok(BtfType::Union(BtfUnion {
+        Ok(BtfType::Union(BtfComposite {
+            is_struct: false,
             name: Btf::get_btf_str(strs, t.name_off)?,
             sz: t.type_id, // it's a type/size union in C
             members: self.load_members(t, extra, strs)?,
@@ -1148,7 +1120,7 @@ impl<'a> Btf<'a> {
         }
         Ok(BtfType::Enum(BtfEnum {
             name: Btf::get_btf_str(strs, t.name_off)?,
-            sz_bits: t.type_id, // it's a type/size union in C
+            sz: t.type_id, // it's a type/size union in C
             values: vals,
         }))
     }
