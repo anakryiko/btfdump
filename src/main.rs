@@ -47,10 +47,9 @@ bitflags! {
         const TYPES         = 0b0001;
         const FUNCINFOS     = 0b0010;
         const LINEINFOS     = 0b0100;
-        const OFFSETRELOCS  = 0b1000;
-        const EXTERNRELOCS  = 0b1000;
+        const FIELDRELOCS   = 0b1000;
 
-        const RELOCS = Self::OFFSETRELOCS.bits | Self::EXTERNRELOCS.bits;
+        const RELOCS = Self::FIELDRELOCS.bits;
         const EXT    = Self::FUNCINFOS.bits | Self::LINEINFOS.bits | Self::RELOCS.bits;
         const ALL    = Self::TYPES.bits | Self::EXT.bits;
     }
@@ -205,9 +204,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                             }
                         }
                     }
-                    if datasets.contains(Datasets::OFFSETRELOCS) {
-                        for (i, sec) in btf.offset_reloc_secs().iter().enumerate() {
-                            println!("\nOffset reloc section #{} '{}':", i, sec.name);
+                    if datasets.contains(Datasets::FIELDRELOCS) {
+                        for (i, sec) in btf.field_reloc_secs().iter().enumerate() {
+                            println!("\nField reloc section #{} '{}':", i, sec.name);
                             for (j, rec) in sec.recs.iter().enumerate() {
                                 print!("#{}: {} --> &", j, rec);
                                 std::io::stdout().flush()?;
@@ -216,14 +215,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                                     Err(e) => print!(" ERROR: {}", e),
                                 };
                                 println!("");
-                            }
-                        }
-                    }
-                    if datasets.contains(Datasets::EXTERNRELOCS) {
-                        for (i, sec) in btf.extern_reloc_secs().iter().enumerate() {
-                            println!("\nExtern reloc section #{} '{}':", i, sec.name);
-                            for (j, rec) in sec.recs.iter().enumerate() {
-                                println!("#{}: {}", j, rec);
                             }
                         }
                     }
@@ -344,7 +335,7 @@ fn stat_btf(elf: &object::ElfFile) -> BtfResult<()> {
         println!("Line info size:\t{}", ext_hdr.line_info_len);
         if ext_hdr.hdr_len >= size_of::<btf_ext_header_v2>() as u32 {
             let ext_hdr2 = ext_data.pread_with::<btf_ext_header_v2>(0, endian)?;
-            println!("Relocs size:\t{}", ext_hdr2.offset_reloc_len);
+            println!("Relocs size:\t{}", ext_hdr2.field_reloc_len);
         }
     } else {
         println!("{} not found.", BTF_EXT_ELF_SEC);
@@ -381,16 +372,16 @@ fn stat_btf(elf: &object::ElfFile) -> BtfResult<()> {
                     func_sz: usize,
                     line_cnt: usize,
                     line_sz: usize,
-                    off_reloc_cnt: usize,
-                    off_reloc_sz: usize,
+                    field_reloc_cnt: usize,
+                    field_reloc_sz: usize,
                 };
                 let new_sec = || Section {
                     func_cnt: 0,
                     func_sz: 0,
                     line_cnt: 0,
                     line_sz: 0,
-                    off_reloc_cnt: 0,
-                    off_reloc_sz: 0,
+                    field_reloc_cnt: 0,
+                    field_reloc_sz: 0,
                 };
                 let mut sec_stats = BTreeMap::new();
                 let mut total = new_sec();
@@ -408,12 +399,12 @@ fn stat_btf(elf: &object::ElfFile) -> BtfResult<()> {
                     total.line_cnt += sec.recs.len();
                     total.line_sz += sec.rec_sz * sec.recs.len();
                 }
-                for sec in btf.offset_reloc_secs() {
+                for sec in btf.field_reloc_secs() {
                     let s = sec_stats.entry(&sec.name).or_insert_with(new_sec);
-                    s.off_reloc_cnt += sec.recs.len();
-                    s.off_reloc_sz += sec.rec_sz * sec.recs.len();
-                    total.off_reloc_cnt += sec.recs.len();
-                    total.off_reloc_sz += sec.rec_sz * sec.recs.len();
+                    s.field_reloc_cnt += sec.recs.len();
+                    s.field_reloc_sz += sec.rec_sz * sec.recs.len();
+                    total.field_reloc_cnt += sec.recs.len();
+                    total.field_reloc_sz += sec.rec_sz * sec.recs.len();
                 }
                 println!("\nBTF ext sections\n=======================================");
                 println!(
@@ -444,8 +435,8 @@ fn stat_btf(elf: &object::ElfFile) -> BtfResult<()> {
                         s.func_cnt,
                         s.line_sz,
                         s.line_cnt,
-                        s.off_reloc_sz,
-                        s.off_reloc_cnt
+                        s.field_reloc_sz,
+                        s.field_reloc_cnt
                     );
                 }
                 println!(
@@ -465,8 +456,8 @@ fn stat_btf(elf: &object::ElfFile) -> BtfResult<()> {
                     total.func_cnt,
                     total.line_sz,
                     total.line_cnt,
-                    total.off_reloc_sz,
-                    total.off_reloc_cnt
+                    total.field_reloc_sz,
+                    total.field_reloc_cnt
                 );
             }
         }

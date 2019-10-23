@@ -88,7 +88,7 @@ impl<'a, 'b> Relocator<'a, 'b> {
 
     pub fn relocate(&mut self) -> BtfResult<Vec<Reloc>> {
         let mut relocs = Vec::new();
-        for (sec_id, sec) in self.local_btf.offset_reloc_secs().iter().enumerate() {
+        for (sec_id, sec) in self.local_btf.field_reloc_secs().iter().enumerate() {
             for (reloc_id, rec) in sec.recs.iter().enumerate() {
                 let local_type = self.local_btf.type_by_id(rec.type_id);
                 let local_off = self.calc_off(self.local_btf, rec.type_id, &rec.access_spec)?;
@@ -409,7 +409,7 @@ impl<'a, 'b> Relocator<'a, 'b> {
         })
     }
 
-    pub fn pretty_print_access_spec(btf: &Btf, rec: &BtfExtOffsetReloc) -> BtfResult<String> {
+    pub fn pretty_print_access_spec(btf: &Btf, rec: &BtfExtFieldReloc) -> BtfResult<String> {
         let mut buf = String::new();
         let spec = &rec.access_spec;
         let mut id = rec.type_id;
