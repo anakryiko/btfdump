@@ -47,11 +47,11 @@ bitflags! {
         const TYPES         = 0b0001;
         const FUNCINFOS     = 0b0010;
         const LINEINFOS     = 0b0100;
-        const FIELDRELOCS   = 0b1000;
+        const RELOCS        = 0b1000;
 
-        const RELOCS = Self::FIELDRELOCS.bits;
-        const EXT    = Self::FUNCINFOS.bits | Self::LINEINFOS.bits | Self::RELOCS.bits;
-        const ALL    = Self::TYPES.bits | Self::EXT.bits;
+        const DEFAULT = Self::TYPES.bits | Self::RELOCS.bits;
+        const EXT     = Self::FUNCINFOS.bits | Self::LINEINFOS.bits | Self::RELOCS.bits;
+        const ALL     = Self::TYPES.bits | Self::EXT.bits;
     }
 }
 
@@ -73,6 +73,7 @@ impl std::str::FromStr for Datasets {
             "relocs" | "reloc" | "r" => Ok(Datasets::RELOCS),
             "exts" | "ext" | "e" => Ok(Datasets::EXT),
             "all" | "a" => Ok(Datasets::ALL),
+            "default" | "def" | "d" => Ok(Datasets::DEFAULT),
             _ => Err(BtfError::new_owned(format!(
                 "unrecognized dataset: '{}'",
                 s
@@ -122,14 +123,14 @@ enum Cmd {
         #[structopt(
             short = "d",
             long = "dataset",
-            default_value = "types",
+            default_value = "default",
             raw(
-                possible_values = r#"&["types", "type", "t", "funcs", "func", "f", "lines", "line", "l", "relocs", "reloc", "r", "all", "a", "exts", "ext", "none"]"#,
+                possible_values = r#"&["default", "def", "d", "types", "type", "t", "funcs", "func", "f", "lines", "line", "l", "relocs", "reloc", "r", "all", "a", "exts", "ext", "none"]"#,
                 next_line_help = "true"
             )
         )]
         /// Datasets to output
-        datasets: Vec<Datasets>,
+        datasets: Datasets,
         #[structopt(flatten)]
         query: QueryArgs,
         #[structopt(short = "v", long = "verbose")]
@@ -172,7 +173,6 @@ fn main() -> Result<(), Box<dyn Error>> {
             verbose,
             union_as_struct,
         } => {
-            let datasets = datasets.iter().fold(Datasets::NONE, |x, &y| x | y);
             let file = std::fs::File::open(&file)?;
             let file = unsafe { memmap::Mmap::map(&file) }?;
             let file = object::ElfFile::parse(&*file)?;
@@ -204,7 +204,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                             }
                         }
                     }
-                    if datasets.contains(Datasets::FIELDRELOCS) {
+                    if datasets.contains(Datasets::RELOCS) {
                         for (i, sec) in btf.field_reloc_secs().iter().enumerate() {
                             println!("\nField reloc section #{} '{}':", i, sec.name);
                             for (j, rec) in sec.recs.iter().enumerate() {
