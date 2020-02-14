@@ -430,6 +430,11 @@ impl<'a, 'b> Relocator<'a, 'b> {
             }
             _ => spec_error(spec, 0, "must be struct/union", id, btf.type_by_id(id))?,
         }
+
+        if rec.kind == BtfFieldRelocKind::BtfTypeId {
+            return Ok(buf);
+        }
+
         if spec[0] > 0 {
             write!(buf, "[{}]", spec[0])?;
         }

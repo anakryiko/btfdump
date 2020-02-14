@@ -168,6 +168,7 @@ pub const BTF_FIELD_EXISTS: u32 = 2;
 pub const BTF_FIELD_SIGNED: u32 = 3;
 pub const BTF_FIELD_LSHIFT_U64: u32 = 4;
 pub const BTF_FIELD_RSHIFT_U64: u32 = 5;
+pub const BTF_BTF_TYPE_ID: u32 = 6;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, DerivePread, Pwrite, IOread, IOwrite, SizeWith)]
@@ -706,7 +707,12 @@ pub struct BtfExtFunc {
 
 impl fmt::Display for BtfExtFunc {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "func: insn {} --> [{}]", self.insn_off, self.type_id)
+        write!(
+            f,
+            "func: insn #{} --> [{}]",
+            self.insn_off / 8,
+            self.type_id
+        )
     }
 }
 
@@ -723,8 +729,12 @@ impl<'a> fmt::Display for BtfExtLine<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "line: insn {} --> {}:{} @ {}\n\t{}",
-            self.insn_off, self.line_num, self.col_num, self.file_name, self.src_line
+            "line: insn #{} --> {}:{} @ {}\n\t{}",
+            self.insn_off / 8,
+            self.line_num,
+            self.col_num,
+            self.file_name,
+            self.src_line
         )
     }
 }
@@ -737,6 +747,7 @@ pub enum BtfFieldRelocKind {
     Signed = 3,
     LShiftU64 = 4,
     RShiftU64 = 5,
+    BtfTypeId = 6,
 }
 
 impl fmt::Display for BtfFieldRelocKind {
@@ -748,6 +759,7 @@ impl fmt::Display for BtfFieldRelocKind {
             BtfFieldRelocKind::Signed => write!(f, "signed"),
             BtfFieldRelocKind::LShiftU64 => write!(f, "lshift_u64"),
             BtfFieldRelocKind::RShiftU64 => write!(f, "rshift_u64"),
+            BtfFieldRelocKind::BtfTypeId => write!(f, "btf_type_id"),
         }
     }
 }
@@ -763,11 +775,24 @@ pub struct BtfExtFieldReloc<'a> {
 
 impl<'a> fmt::Display for BtfExtFieldReloc<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "field_reloc: insn {} --> [{}] + {}: {}",
-            self.insn_off, self.type_id, self.access_spec_str, self.kind,
-        )
+        if self.kind == BtfFieldRelocKind::BtfTypeId {
+            write!(
+                f,
+                "field_reloc: insn #{} --> {}([{}])",
+                self.insn_off / 8,
+                self.kind,
+                self.type_id,
+            )
+        } else {
+            write!(
+                f,
+                "field_reloc: insn #{} --> [{}] + {}: {}",
+                self.insn_off / 8,
+                self.type_id,
+                self.access_spec_str,
+                self.kind,
+            )
+        }
     }
 }
 
@@ -1312,8 +1337,6 @@ impl<'a> Btf<'a> {
             for i in 0..sec_hdr.num_info {
                 let off = (i * rec_sz) as usize;
                 let rec = data.pread_with::<btf_ext_field_reloc>(off, self.endian)?;
-                let access_spec_str = Btf::get_btf_str(strs, rec.access_spec_off)?;
-                let access_spec = Btf::parse_reloc_access_spec(&access_spec_str)?;
                 let kind = match rec.kind {
                     BTF_FIELD_BYTE_OFFSET => BtfFieldRelocKind::ByteOff,
                     BTF_FIELD_BYTE_SIZE => BtfFieldRelocKind::ByteSz,
@@ -1321,17 +1344,31 @@ impl<'a> Btf<'a> {
                     BTF_FIELD_SIGNED => BtfFieldRelocKind::Signed,
                     BTF_FIELD_LSHIFT_U64 => BtfFieldRelocKind::LShiftU64,
                     BTF_FIELD_RSHIFT_U64 => BtfFieldRelocKind::RShiftU64,
+                    BTF_BTF_TYPE_ID => BtfFieldRelocKind::BtfTypeId,
                     _ => {
                         return btf_error(format!("Unknown BTF field reloc kind: {}", rec.kind));
                     }
                 };
-                recs.push(BtfExtFieldReloc {
-                    insn_off: rec.insn_off,
-                    type_id: rec.type_id,
-                    access_spec_str: access_spec_str,
-                    access_spec: access_spec,
-                    kind: kind,
-                });
+                let relo = if kind == BtfFieldRelocKind::BtfTypeId {
+                    BtfExtFieldReloc {
+                        insn_off: rec.insn_off,
+                        type_id: rec.type_id,
+                        access_spec_str: "",
+                        access_spec: vec![],
+                        kind: kind,
+                    }
+                } else {
+                    let access_spec_str = Btf::get_btf_str(strs, rec.access_spec_off)?;
+                    let access_spec = Btf::parse_reloc_access_spec(&access_spec_str)?;
+                    BtfExtFieldReloc {
+                        insn_off: rec.insn_off,
+                        type_id: rec.type_id,
+                        access_spec_str: access_spec_str,
+                        access_spec: access_spec,
+                        kind: kind,
+                    }
+                };
+                recs.push(relo);
             }
             secs.push(BtfExtSection::<BtfExtFieldReloc> {
                 name: Btf::get_btf_str(strs, sec_hdr.sec_name_off)?,
