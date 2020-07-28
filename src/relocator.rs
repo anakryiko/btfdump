@@ -88,7 +88,7 @@ impl<'a, 'b> Relocator<'a, 'b> {
 
     pub fn relocate(&mut self) -> BtfResult<Vec<Reloc>> {
         let mut relocs = Vec::new();
-        for (sec_id, sec) in self.local_btf.field_reloc_secs().iter().enumerate() {
+        for (sec_id, sec) in self.local_btf.core_reloc_secs().iter().enumerate() {
             for (reloc_id, rec) in sec.recs.iter().enumerate() {
                 let local_type = self.local_btf.type_by_id(rec.type_id);
                 let local_off = self.calc_off(self.local_btf, rec.type_id, &rec.access_spec)?;
@@ -409,7 +409,7 @@ impl<'a, 'b> Relocator<'a, 'b> {
         })
     }
 
-    pub fn pretty_print_access_spec(btf: &Btf, rec: &BtfExtFieldReloc) -> BtfResult<String> {
+    pub fn pretty_print_access_spec(btf: &Btf, rec: &BtfExtCoreReloc) -> BtfResult<String> {
         let mut buf = String::new();
         let spec = &rec.access_spec;
         let mut id = rec.type_id;
@@ -428,10 +428,26 @@ impl<'a, 'b> Relocator<'a, 'b> {
                     if t.name.is_empty() { "<anon>" } else { &t.name }
                 )?;
             }
-            _ => spec_error(spec, 0, "must be struct/union", id, btf.type_by_id(id))?,
+            BtfType::Typedef(t) => {
+                write!(
+                    buf,
+                    "typedef {}",
+                    if t.name.is_empty() { "<anon>" } else { &t.name }
+                )?;
+            }
+            _ => spec_error(
+                spec,
+                0,
+                "must be struct/union/typedef",
+                id,
+                btf.type_by_id(id),
+            )?,
         }
 
-        if rec.kind == BtfFieldRelocKind::BtfTypeId {
+        if rec.kind == BtfCoreRelocKind::LocalTypeId
+            || rec.kind == BtfCoreRelocKind::TargetTypeId
+            || rec.kind == BtfCoreRelocKind::TypeExists
+        {
             return Ok(buf);
         }
 

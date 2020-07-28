@@ -205,10 +205,10 @@ fn main() -> Result<(), Box<dyn Error>> {
                         }
                     }
                     if datasets.contains(Datasets::RELOCS) {
-                        for (i, sec) in btf.field_reloc_secs().iter().enumerate() {
-                            println!("\nField reloc section #{} '{}':", i, sec.name);
+                        for (i, sec) in btf.core_reloc_secs().iter().enumerate() {
+                            println!("\nCore reloc section #{} '{}':", i, sec.name);
                             for (j, rec) in sec.recs.iter().enumerate() {
-                                print!("#{}: {} --> &", j, rec);
+                                print!("#{}: {} --> ", j, rec);
                                 std::io::stdout().flush()?;
                                 match Relocator::pretty_print_access_spec(&btf, rec) {
                                     Ok(s) => print!("{}", s),
@@ -335,7 +335,7 @@ fn stat_btf(elf: &object::ElfFile) -> BtfResult<()> {
         println!("Line info size:\t{}", ext_hdr.line_info_len);
         if ext_hdr.hdr_len >= size_of::<btf_ext_header_v2>() as u32 {
             let ext_hdr2 = ext_data.pread_with::<btf_ext_header_v2>(0, endian)?;
-            println!("Relocs size:\t{}", ext_hdr2.field_reloc_len);
+            println!("Relocs size:\t{}", ext_hdr2.core_reloc_len);
         }
     } else {
         println!("{} not found.", BTF_EXT_ELF_SEC);
@@ -372,16 +372,16 @@ fn stat_btf(elf: &object::ElfFile) -> BtfResult<()> {
                     func_sz: usize,
                     line_cnt: usize,
                     line_sz: usize,
-                    field_reloc_cnt: usize,
-                    field_reloc_sz: usize,
+                    core_reloc_cnt: usize,
+                    core_reloc_sz: usize,
                 };
                 let new_sec = || Section {
                     func_cnt: 0,
                     func_sz: 0,
                     line_cnt: 0,
                     line_sz: 0,
-                    field_reloc_cnt: 0,
-                    field_reloc_sz: 0,
+                    core_reloc_cnt: 0,
+                    core_reloc_sz: 0,
                 };
                 let mut sec_stats = BTreeMap::new();
                 let mut total = new_sec();
@@ -399,12 +399,12 @@ fn stat_btf(elf: &object::ElfFile) -> BtfResult<()> {
                     total.line_cnt += sec.recs.len();
                     total.line_sz += sec.rec_sz * sec.recs.len();
                 }
-                for sec in btf.field_reloc_secs() {
+                for sec in btf.core_reloc_secs() {
                     let s = sec_stats.entry(&sec.name).or_insert_with(new_sec);
-                    s.field_reloc_cnt += sec.recs.len();
-                    s.field_reloc_sz += sec.rec_sz * sec.recs.len();
-                    total.field_reloc_cnt += sec.recs.len();
-                    total.field_reloc_sz += sec.rec_sz * sec.recs.len();
+                    s.core_reloc_cnt += sec.recs.len();
+                    s.core_reloc_sz += sec.rec_sz * sec.recs.len();
+                    total.core_reloc_cnt += sec.recs.len();
+                    total.core_reloc_sz += sec.rec_sz * sec.recs.len();
                 }
                 println!("\nBTF ext sections\n=======================================");
                 println!(
@@ -435,8 +435,8 @@ fn stat_btf(elf: &object::ElfFile) -> BtfResult<()> {
                         s.func_cnt,
                         s.line_sz,
                         s.line_cnt,
-                        s.field_reloc_sz,
-                        s.field_reloc_cnt
+                        s.core_reloc_sz,
+                        s.core_reloc_cnt
                     );
                 }
                 println!(
@@ -456,8 +456,8 @@ fn stat_btf(elf: &object::ElfFile) -> BtfResult<()> {
                     total.func_cnt,
                     total.line_sz,
                     total.line_cnt,
-                    total.field_reloc_sz,
-                    total.field_reloc_cnt
+                    total.core_reloc_sz,
+                    total.core_reloc_cnt
                 );
             }
         }

@@ -135,8 +135,8 @@ pub struct btf_ext_header_v2 {
     pub func_info_len: u32,
     pub line_info_off: u32,
     pub line_info_len: u32,
-    pub field_reloc_off: u32,
-    pub field_reloc_len: u32,
+    pub core_reloc_off: u32,
+    pub core_reloc_len: u32,
 }
 
 #[repr(C)]
@@ -168,11 +168,13 @@ pub const BTF_FIELD_EXISTS: u32 = 2;
 pub const BTF_FIELD_SIGNED: u32 = 3;
 pub const BTF_FIELD_LSHIFT_U64: u32 = 4;
 pub const BTF_FIELD_RSHIFT_U64: u32 = 5;
-pub const BTF_BTF_TYPE_ID: u32 = 6;
+pub const BTF_TYPE_LOCAL_ID: u32 = 6;
+pub const BTF_TYPE_TARGET_ID: u32 = 7;
+pub const BTF_TYPE_EXISTS: u32 = 8;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, DerivePread, Pwrite, IOread, IOwrite, SizeWith)]
-pub struct btf_ext_field_reloc {
+pub struct btf_ext_core_reloc {
     pub insn_off: u32,
     pub type_id: u32,
     pub access_spec_off: u32,
@@ -740,59 +742,53 @@ impl<'a> fmt::Display for BtfExtLine<'a> {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum BtfFieldRelocKind {
+pub enum BtfCoreRelocKind {
     ByteOff = 0,
     ByteSz = 1,
-    Exists = 2,
+    FieldExists = 2,
     Signed = 3,
     LShiftU64 = 4,
     RShiftU64 = 5,
-    BtfTypeId = 6,
+    LocalTypeId = 6,
+    TargetTypeId = 7,
+    TypeExists = 8,
 }
 
-impl fmt::Display for BtfFieldRelocKind {
+impl fmt::Display for BtfCoreRelocKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            BtfFieldRelocKind::ByteOff => write!(f, "byte_off"),
-            BtfFieldRelocKind::ByteSz => write!(f, "byte_sz"),
-            BtfFieldRelocKind::Exists => write!(f, "exists"),
-            BtfFieldRelocKind::Signed => write!(f, "signed"),
-            BtfFieldRelocKind::LShiftU64 => write!(f, "lshift_u64"),
-            BtfFieldRelocKind::RShiftU64 => write!(f, "rshift_u64"),
-            BtfFieldRelocKind::BtfTypeId => write!(f, "btf_type_id"),
+            BtfCoreRelocKind::ByteOff => write!(f, "byte_off"),
+            BtfCoreRelocKind::ByteSz => write!(f, "byte_sz"),
+            BtfCoreRelocKind::FieldExists => write!(f, "field_exists"),
+            BtfCoreRelocKind::Signed => write!(f, "signed"),
+            BtfCoreRelocKind::LShiftU64 => write!(f, "lshift_u64"),
+            BtfCoreRelocKind::RShiftU64 => write!(f, "rshift_u64"),
+            BtfCoreRelocKind::LocalTypeId => write!(f, "local_type_id"),
+            BtfCoreRelocKind::TargetTypeId => write!(f, "target_type_id"),
+            BtfCoreRelocKind::TypeExists => write!(f, "type_exists"),
         }
     }
 }
 
 #[derive(Debug)]
-pub struct BtfExtFieldReloc<'a> {
+pub struct BtfExtCoreReloc<'a> {
     pub insn_off: u32,
     pub type_id: u32,
     pub access_spec_str: &'a str,
     pub access_spec: Vec<usize>,
-    pub kind: BtfFieldRelocKind,
+    pub kind: BtfCoreRelocKind,
 }
 
-impl<'a> fmt::Display for BtfExtFieldReloc<'a> {
+impl<'a> fmt::Display for BtfExtCoreReloc<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if self.kind == BtfFieldRelocKind::BtfTypeId {
-            write!(
-                f,
-                "field_reloc: insn #{} --> {}([{}])",
-                self.insn_off / 8,
-                self.kind,
-                self.type_id,
-            )
-        } else {
-            write!(
-                f,
-                "field_reloc: insn #{} --> [{}] + {}: {}",
-                self.insn_off / 8,
-                self.type_id,
-                self.access_spec_str,
-                self.kind,
-            )
-        }
+        write!(
+            f,
+            "core_reloc: insn #{} --> [{}] + {}: {}",
+            self.insn_off / 8,
+            self.type_id,
+            self.access_spec_str,
+            self.kind,
+        )
     }
 }
 
@@ -806,7 +802,7 @@ pub struct Btf<'a> {
     has_ext: bool,
     func_secs: Vec<BtfExtSection<'a, BtfExtFunc>>,
     line_secs: Vec<BtfExtSection<'a, BtfExtLine<'a>>>,
-    field_reloc_secs: Vec<BtfExtSection<'a, BtfExtFieldReloc<'a>>>,
+    core_reloc_secs: Vec<BtfExtSection<'a, BtfExtCoreReloc<'a>>>,
 }
 
 impl<'a> Btf<'a> {
@@ -838,8 +834,8 @@ impl<'a> Btf<'a> {
         &self.line_secs
     }
 
-    pub fn field_reloc_secs(&self) -> &[BtfExtSection<BtfExtFieldReloc>] {
-        &self.field_reloc_secs
+    pub fn core_reloc_secs(&self) -> &[BtfExtSection<BtfExtCoreReloc>] {
+        &self.core_reloc_secs
     }
 
     pub fn get_size_of(&self, type_id: u32) -> u32 {
@@ -932,7 +928,7 @@ impl<'a> Btf<'a> {
             has_ext: false,
             func_secs: Vec::new(),
             line_secs: Vec::new(),
-            field_reloc_secs: Vec::new(),
+            core_reloc_secs: Vec::new(),
         };
 
         let btf_section = elf
@@ -997,10 +993,10 @@ impl<'a> Btf<'a> {
                 btf.line_secs = btf.load_line_secs(line_data, str_data)?;
             }
             if let Some(h) = ext_hdr2 {
-                if h.field_reloc_len > 0 {
-                    let reloc_off = (h.hdr_len + h.field_reloc_off) as usize;
-                    let reloc_data = &ext_data[reloc_off..reloc_off + h.field_reloc_len as usize];
-                    btf.field_reloc_secs = btf.load_field_reloc_secs(reloc_data, str_data)?;
+                if h.core_reloc_len > 0 {
+                    let reloc_off = (h.hdr_len + h.core_reloc_off) as usize;
+                    let reloc_data = &ext_data[reloc_off..reloc_off + h.core_reloc_len as usize];
+                    btf.core_reloc_secs = btf.load_core_reloc_secs(reloc_data, str_data)?;
                 }
             }
         }
@@ -1314,17 +1310,17 @@ impl<'a> Btf<'a> {
         Ok(secs)
     }
 
-    fn load_field_reloc_secs(
+    fn load_core_reloc_secs(
         &self,
         mut data: &'a [u8],
         strs: &'a [u8],
-    ) -> BtfResult<Vec<BtfExtSection<'a, BtfExtFieldReloc<'a>>>> {
+    ) -> BtfResult<Vec<BtfExtSection<'a, BtfExtCoreReloc<'a>>>> {
         let rec_sz = data.pread_with::<u32>(0, self.endian)?;
-        if rec_sz < size_of::<btf_ext_field_reloc>() as u32 {
+        if rec_sz < size_of::<btf_ext_core_reloc>() as u32 {
             return btf_error(format!(
-                "Too small field reloc record size: {}, expect at least: {}",
+                "Too small CO-RE reloc record size: {}, expect at least: {}",
                 rec_sz,
-                size_of::<btf_ext_field_reloc>()
+                size_of::<btf_ext_core_reloc>()
             ));
         }
         data = &data[size_of::<u32>()..];
@@ -1336,31 +1332,25 @@ impl<'a> Btf<'a> {
             let mut recs = Vec::new();
             for i in 0..sec_hdr.num_info {
                 let off = (i * rec_sz) as usize;
-                let rec = data.pread_with::<btf_ext_field_reloc>(off, self.endian)?;
+                let rec = data.pread_with::<btf_ext_core_reloc>(off, self.endian)?;
                 let kind = match rec.kind {
-                    BTF_FIELD_BYTE_OFFSET => BtfFieldRelocKind::ByteOff,
-                    BTF_FIELD_BYTE_SIZE => BtfFieldRelocKind::ByteSz,
-                    BTF_FIELD_EXISTS => BtfFieldRelocKind::Exists,
-                    BTF_FIELD_SIGNED => BtfFieldRelocKind::Signed,
-                    BTF_FIELD_LSHIFT_U64 => BtfFieldRelocKind::LShiftU64,
-                    BTF_FIELD_RSHIFT_U64 => BtfFieldRelocKind::RShiftU64,
-                    BTF_BTF_TYPE_ID => BtfFieldRelocKind::BtfTypeId,
+                    BTF_FIELD_BYTE_OFFSET => BtfCoreRelocKind::ByteOff,
+                    BTF_FIELD_BYTE_SIZE => BtfCoreRelocKind::ByteSz,
+                    BTF_FIELD_EXISTS => BtfCoreRelocKind::FieldExists,
+                    BTF_FIELD_SIGNED => BtfCoreRelocKind::Signed,
+                    BTF_FIELD_LSHIFT_U64 => BtfCoreRelocKind::LShiftU64,
+                    BTF_FIELD_RSHIFT_U64 => BtfCoreRelocKind::RShiftU64,
+                    BTF_TYPE_LOCAL_ID => BtfCoreRelocKind::LocalTypeId,
+                    BTF_TYPE_TARGET_ID => BtfCoreRelocKind::TargetTypeId,
+                    BTF_TYPE_EXISTS => BtfCoreRelocKind::TypeExists,
                     _ => {
-                        return btf_error(format!("Unknown BTF field reloc kind: {}", rec.kind));
+                        return btf_error(format!("Unknown BTF CO-RE reloc kind: {}", rec.kind));
                     }
                 };
-                let relo = if kind == BtfFieldRelocKind::BtfTypeId {
-                    BtfExtFieldReloc {
-                        insn_off: rec.insn_off,
-                        type_id: rec.type_id,
-                        access_spec_str: "",
-                        access_spec: vec![],
-                        kind: kind,
-                    }
-                } else {
+                let relo = {
                     let access_spec_str = Btf::get_btf_str(strs, rec.access_spec_off)?;
                     let access_spec = Btf::parse_reloc_access_spec(&access_spec_str)?;
-                    BtfExtFieldReloc {
+                    BtfExtCoreReloc {
                         insn_off: rec.insn_off,
                         type_id: rec.type_id,
                         access_spec_str: access_spec_str,
@@ -1370,7 +1360,7 @@ impl<'a> Btf<'a> {
                 };
                 recs.push(relo);
             }
-            secs.push(BtfExtSection::<BtfExtFieldReloc> {
+            secs.push(BtfExtSection::<BtfExtCoreReloc> {
                 name: Btf::get_btf_str(strs, sec_hdr.sec_name_off)?,
                 rec_sz: rec_sz as usize,
                 recs: recs,
