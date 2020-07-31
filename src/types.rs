@@ -171,6 +171,9 @@ pub const BTF_FIELD_RSHIFT_U64: u32 = 5;
 pub const BTF_TYPE_LOCAL_ID: u32 = 6;
 pub const BTF_TYPE_TARGET_ID: u32 = 7;
 pub const BTF_TYPE_EXISTS: u32 = 8;
+pub const BTF_TYPE_SIZE: u32 = 9;
+pub const BTF_ENUMVAL_EXISTS: u32 = 10;
+pub const BTF_ENUMVAL_VALUE: u32 = 11;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, DerivePread, Pwrite, IOread, IOwrite, SizeWith)]
@@ -752,6 +755,9 @@ pub enum BtfCoreRelocKind {
     LocalTypeId = 6,
     TargetTypeId = 7,
     TypeExists = 8,
+    TypeSize = 9,
+    EnumvalExists = 10,
+    EnumvalValue = 11,
 }
 
 impl fmt::Display for BtfCoreRelocKind {
@@ -766,6 +772,9 @@ impl fmt::Display for BtfCoreRelocKind {
             BtfCoreRelocKind::LocalTypeId => write!(f, "local_type_id"),
             BtfCoreRelocKind::TargetTypeId => write!(f, "target_type_id"),
             BtfCoreRelocKind::TypeExists => write!(f, "type_exists"),
+            BtfCoreRelocKind::TypeSize => write!(f, "type_size"),
+            BtfCoreRelocKind::EnumvalExists => write!(f, "enumval_exists"),
+            BtfCoreRelocKind::EnumvalValue => write!(f, "enumval_value"),
         }
     }
 }
@@ -1343,6 +1352,9 @@ impl<'a> Btf<'a> {
                     BTF_TYPE_LOCAL_ID => BtfCoreRelocKind::LocalTypeId,
                     BTF_TYPE_TARGET_ID => BtfCoreRelocKind::TargetTypeId,
                     BTF_TYPE_EXISTS => BtfCoreRelocKind::TypeExists,
+                    BTF_TYPE_SIZE => BtfCoreRelocKind::TypeSize,
+                    BTF_ENUMVAL_EXISTS => BtfCoreRelocKind::EnumvalExists,
+                    BTF_ENUMVAL_VALUE => BtfCoreRelocKind::EnumvalValue,
                     _ => {
                         return btf_error(format!("Unknown BTF CO-RE reloc kind: {}", rec.kind));
                     }

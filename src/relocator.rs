@@ -435,10 +435,17 @@ impl<'a, 'b> Relocator<'a, 'b> {
                     if t.name.is_empty() { "<anon>" } else { &t.name }
                 )?;
             }
+            BtfType::Enum(t) => {
+                write!(
+                    buf,
+                    "enum {}",
+                    if t.name.is_empty() { "<anon>" } else { &t.name }
+                )?;
+            }
             _ => spec_error(
                 spec,
                 0,
-                "must be struct/union/typedef",
+                "must be struct/union/typedef/enum",
                 id,
                 btf.type_by_id(id),
             )?,
