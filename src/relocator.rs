@@ -409,6 +409,35 @@ impl<'a, 'b> Relocator<'a, 'b> {
         })
     }
 
+    fn relo_is_field_based(kind: BtfCoreRelocKind) -> bool {
+        match kind {
+            BtfCoreRelocKind::ByteOff
+            | BtfCoreRelocKind::ByteSz
+            | BtfCoreRelocKind::FieldExists
+            | BtfCoreRelocKind::Signed
+            | BtfCoreRelocKind::LShiftU64
+            | BtfCoreRelocKind::RShiftU64 => true,
+            _ => false,
+        }
+    }
+
+    fn relo_is_type_based(kind: BtfCoreRelocKind) -> bool {
+        match kind {
+            BtfCoreRelocKind::LocalTypeId
+            | BtfCoreRelocKind::TargetTypeId
+            | BtfCoreRelocKind::TypeExists
+            | BtfCoreRelocKind::TypeSize => true,
+            _ => false,
+        }
+    }
+
+    fn relo_is_enumval_based(kind: BtfCoreRelocKind) -> bool {
+        match kind {
+            BtfCoreRelocKind::EnumvalExists | BtfCoreRelocKind::EnumvalValue => true,
+            _ => false,
+        }
+    }
+
     pub fn pretty_print_access_spec(btf: &Btf, rec: &BtfExtCoreReloc) -> BtfResult<String> {
         let mut buf = String::new();
         let spec = &rec.access_spec;
@@ -442,6 +471,9 @@ impl<'a, 'b> Relocator<'a, 'b> {
                     if t.name.is_empty() { "<anon>" } else { &t.name }
                 )?;
             }
+            BtfType::Ptr(t) => {
+                write!(buf, "ptr -> [{}]", t.type_id)?;
+            }
             _ => spec_error(
                 spec,
                 0,
@@ -451,10 +483,24 @@ impl<'a, 'b> Relocator<'a, 'b> {
             )?,
         }
 
-        if rec.kind == BtfCoreRelocKind::LocalTypeId
-            || rec.kind == BtfCoreRelocKind::TargetTypeId
-            || rec.kind == BtfCoreRelocKind::TypeExists
-        {
+        if Relocator::relo_is_type_based(rec.kind) {
+            return Ok(buf);
+        }
+
+        if Relocator::relo_is_enumval_based(rec.kind) {
+            id = btf.skip_mods_and_typedefs(rec.type_id);
+            match btf.type_by_id(id) {
+                BtfType::Enum(t) => {
+                    let e = &t.values[spec[0]];
+                    write!(buf, "::{} = {}", &e.name, e.value)?;
+                }
+                _ => spec_error(spec, 0, "must be enum", id, btf.type_by_id(id))?,
+            }
+            return Ok(buf);
+        }
+
+        if !Relocator::relo_is_field_based(rec.kind) {
+            write!(buf, " ... ERROR: unexpected relocation kind")?;
             return Ok(buf);
         }
 

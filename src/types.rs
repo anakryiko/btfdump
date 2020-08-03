@@ -195,7 +195,7 @@ fn disp_name(s: &str) -> &str {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum BtfIntEncoding {
     None,
     Signed,
@@ -347,7 +347,7 @@ impl<'a> fmt::Display for BtfEnum<'a> {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum BtfFwdKind {
     Struct,
     Union,
@@ -483,7 +483,7 @@ impl<'a> fmt::Display for BtfFuncProto<'a> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum BtfVarKind {
     Static,
     GlobalAlloc,
@@ -744,7 +744,7 @@ impl<'a> fmt::Display for BtfExtLine<'a> {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum BtfCoreRelocKind {
     ByteOff = 0,
     ByteSz = 1,
