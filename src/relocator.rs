@@ -474,10 +474,13 @@ impl<'a, 'b> Relocator<'a, 'b> {
             BtfType::Ptr(t) => {
                 write!(buf, "ptr -> [{}]", t.type_id)?;
             }
+            BtfType::Array(t) => {
+                write!(buf, "arr[{}] -> [{}]", t.nelems, t.val_type_id)?;
+            }
             _ => spec_error(
                 spec,
                 0,
-                "must be struct/union/typedef/enum",
+                "must be struct/union/typedef/enum/ptr/array",
                 id,
                 btf.type_by_id(id),
             )?,
