@@ -477,6 +477,9 @@ impl<'a, 'b> Relocator<'a, 'b> {
             BtfType::Array(t) => {
                 write!(buf, "arr[{}] -> [{}]", t.nelems, t.val_type_id)?;
             }
+            BtfType::Int(t) => {
+                write!(buf, "int {}", t.name)?;
+            }
             _ => spec_error(
                 spec,
                 0,
