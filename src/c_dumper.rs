@@ -73,7 +73,10 @@ impl<'a> CDumper<'a> {
         dumper
     }
 
-    pub fn dump_types(&mut self, filter: Box<Fn(u32, &'a BtfType<'a>) -> bool>) -> BtfResult<()> {
+    pub fn dump_types(
+        &mut self,
+        filter: Box<dyn Fn(u32, &'a BtfType<'a>) -> bool>,
+    ) -> BtfResult<()> {
         for id in 1..self.btf.type_cnt() {
             let bt = self.btf.type_by_id(id);
             if filter(id, bt) {
@@ -137,14 +140,15 @@ impl<'a> CDumper<'a> {
             OrderState::Ordered => return Ok(true),
         }
         match self.btf.type_by_id(id) {
-            BtfType::Func(_) | BtfType::Var(_) | BtfType::Datasec(_) => {}
-            BtfType::Void | BtfType::Int(_) => {
+            BtfType::Func(_) | BtfType::Var(_) | BtfType::Datasec(_) | BtfType::DeclTag(_) => {}
+            BtfType::Void | BtfType::Int(_) | BtfType::Float(_) => {
                 self.set_order_state(id, OrderState::Ordered);
                 return Ok(false);
             }
             BtfType::Volatile(t) => return self.order_type(t.type_id, has_ptr, order),
             BtfType::Const(t) => return self.order_type(t.type_id, has_ptr, order),
             BtfType::Restrict(t) => return self.order_type(t.type_id, has_ptr, order),
+            BtfType::TypeTag(t) => return self.order_type(t.type_id, has_ptr, order),
             BtfType::Ptr(t) => {
                 let res = self.order_type(t.type_id, true, order);
                 self.set_order_state(id, OrderState::Ordered);
@@ -270,11 +274,12 @@ impl<'a> CDumper<'a> {
         }
 
         match self.btf.type_by_id(id) {
-            BtfType::Func(_) | BtfType::Var(_) | BtfType::Datasec(_) => {}
-            BtfType::Void | BtfType::Int(_) => {}
+            BtfType::Func(_) | BtfType::Var(_) | BtfType::Datasec(_) | BtfType::DeclTag(_) => {}
+            BtfType::Void | BtfType::Int(_) | BtfType::Float(_) => {}
             BtfType::Volatile(t) => self.emit_type(t.type_id, cont_id)?,
             BtfType::Const(t) => self.emit_type(t.type_id, cont_id)?,
             BtfType::Restrict(t) => self.emit_type(t.type_id, cont_id)?,
+            BtfType::TypeTag(t) => self.emit_type(t.type_id, cont_id)?,
             BtfType::Ptr(t) => self.emit_type(t.type_id, cont_id)?,
             BtfType::Array(t) => self.emit_type(t.val_type_id, cont_id)?,
             BtfType::FuncProto(t) => {
@@ -678,7 +683,15 @@ impl<'a> CDumper<'a> {
                     print!(")");
                     return;
                 }
-                BtfType::Func(_) | BtfType::Var(_) | BtfType::Datasec(_) => {
+                BtfType::Float(t) => {
+                    self.emit_mods(&mut chain);
+                    print!("{}", t.name);
+                }
+                BtfType::TypeTag(t) => {
+                    self.emit_mods(&mut chain);
+                    print!(" __attribute__((btf_tag((\"{}\")))", &t.name);
+                }
+                BtfType::Func(_) | BtfType::Var(_) | BtfType::Datasec(_) | BtfType::DeclTag(_) => {
                     print!(
                         "!@#! UNEXPECT TYPE DECL id: {}, type: {}",
                         id,

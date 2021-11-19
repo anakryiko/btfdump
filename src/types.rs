@@ -32,7 +32,10 @@ pub const BTF_KIND_FUNC: u32 = 12;
 pub const BTF_KIND_FUNC_PROTO: u32 = 13;
 pub const BTF_KIND_VAR: u32 = 14;
 pub const BTF_KIND_DATASEC: u32 = 15;
-pub const BTF_KIND_MAX: u32 = 15;
+pub const BTF_KIND_FLOAT: u32 = 16;
+pub const BTF_KIND_DECL_TAG: u32 = 17;
+pub const BTF_KIND_TYPE_TAG: u32 = 18;
+pub const BTF_KIND_MAX: u32 = 18;
 pub const NR_BTF_KINDS: u32 = BTF_KIND_MAX + 1;
 
 pub const BTF_INT_SIGNED: u32 = 0b001;
@@ -42,6 +45,10 @@ pub const BTF_INT_BOOL: u32 = 0b100;
 pub const BTF_VAR_STATIC: u32 = 0;
 pub const BTF_VAR_GLOBAL_ALLOCATED: u32 = 1;
 pub const BTF_VAR_GLOBAL_EXTERNAL: u32 = 2;
+
+pub const BTF_FUNC_STATIC: u32 = 0;
+pub const BTF_FUNC_GLOBAL: u32 = 1;
+pub const BTF_FUNC_EXTERN: u32 = 2;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, DerivePread, Pwrite, IOread, IOwrite, SizeWith)]
@@ -431,19 +438,40 @@ impl fmt::Display for BtfRestrict {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum BtfFuncKind {
+    Unknown,
+    Static,
+    Global,
+    Extern,
+}
+
+impl fmt::Display for BtfFuncKind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            BtfFuncKind::Unknown => write!(f, "<unknown>"),
+            BtfFuncKind::Static => write!(f, "static"),
+            BtfFuncKind::Global => write!(f, "global"),
+            BtfFuncKind::Extern => write!(f, "extern"),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct BtfFunc<'a> {
     pub name: &'a str,
     pub proto_type_id: u32,
+    pub kind: BtfFuncKind,
 }
 
 impl<'a> fmt::Display for BtfFunc<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "<{}> '{}' --> [{}]",
+            "<{}> '{}' --> {} [{}]",
             "FUNC",
             disp_name(self.name),
+            self.kind,
             self.proto_type_id
         )
     }
@@ -562,6 +590,57 @@ impl<'a> fmt::Display for BtfDatasec<'a> {
 }
 
 #[derive(Debug)]
+pub struct BtfFloat<'a> {
+    pub name: &'a str,
+    pub sz: u32,
+}
+
+impl<'a> fmt::Display for BtfFloat<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "<{}> '{}' sz:{}", "FLOAT", disp_name(self.name), self.sz)?;
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub struct BtfDeclTag<'a> {
+    pub name: &'a str,
+    pub type_id: u32,
+    pub comp_idx: u32,
+}
+
+impl<'a> fmt::Display for BtfDeclTag<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "<{}> '{}' --> [{}] comp_idx:{}",
+            "DECL_TAG",
+            disp_name(self.name),
+            self.type_id,
+            self.comp_idx,
+        )
+    }
+}
+
+#[derive(Debug)]
+pub struct BtfTypeTag<'a> {
+    pub name: &'a str,
+    pub type_id: u32,
+}
+
+impl<'a> fmt::Display for BtfTypeTag<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "<{}> '{}' --> [{}]",
+            "TYPE_TAG",
+            disp_name(self.name),
+            self.type_id
+        )
+    }
+}
+
+#[derive(Debug)]
 pub enum BtfType<'a> {
     Void,
     Int(BtfInt<'a>),
@@ -579,6 +658,9 @@ pub enum BtfType<'a> {
     FuncProto(BtfFuncProto<'a>),
     Var(BtfVar<'a>),
     Datasec(BtfDatasec<'a>),
+    Float(BtfFloat<'a>),
+    DeclTag(BtfDeclTag<'a>),
+    TypeTag(BtfTypeTag<'a>),
 }
 
 impl<'a> fmt::Display for BtfType<'a> {
@@ -600,6 +682,9 @@ impl<'a> fmt::Display for BtfType<'a> {
             BtfType::FuncProto(t) => t.fmt(f),
             BtfType::Var(t) => t.fmt(f),
             BtfType::Datasec(t) => t.fmt(f),
+            BtfType::Float(t) => t.fmt(f),
+            BtfType::DeclTag(t) => t.fmt(f),
+            BtfType::TypeTag(t) => t.fmt(f),
         }
     }
 }
@@ -623,6 +708,9 @@ impl<'a> BtfType<'a> {
             BtfType::FuncProto(_) => BtfKind::FuncProto,
             BtfType::Var(_) => BtfKind::Var,
             BtfType::Datasec(_) => BtfKind::Datasec,
+            BtfType::Float(_) => BtfKind::Float,
+            BtfType::DeclTag(_) => BtfKind::DeclTag,
+            BtfType::TypeTag(_) => BtfKind::TypeTag,
         }
     }
 
@@ -644,6 +732,9 @@ impl<'a> BtfType<'a> {
             BtfType::FuncProto(_) => EMPTY,
             BtfType::Var(t) => &t.name,
             BtfType::Datasec(t) => &t.name,
+            BtfType::Float(t) => &t.name,
+            BtfType::DeclTag(t) => &t.name,
+            BtfType::TypeTag(t) => &t.name,
         }
     }
 }
@@ -666,6 +757,9 @@ pub enum BtfKind {
     FuncProto,
     Var,
     Datasec,
+    Float,
+    DeclTag,
+    TypeTag,
 }
 
 impl std::str::FromStr for BtfKind {
@@ -689,6 +783,9 @@ impl std::str::FromStr for BtfKind {
             "func" | "fn" => Ok(BtfKind::Func),
             "var" | "v" => Ok(BtfKind::Var),
             "datasec" => Ok(BtfKind::Datasec),
+            "float" => Ok(BtfKind::Float),
+            "decl_tag" => Ok(BtfKind::DeclTag),
+            "type_tag" => Ok(BtfKind::TypeTag),
             _ => Err(BtfError::new_owned(format!(
                 "unrecognized btf kind: '{}'",
                 s
@@ -865,6 +962,9 @@ impl<'a> Btf<'a> {
             BtfType::Func(_) => 0,
             BtfType::Var(_) => 0,
             BtfType::Datasec(t) => t.sz,
+            BtfType::Float(t) => t.sz,
+            BtfType::DeclTag(t) => self.get_size_of(t.type_id),
+            BtfType::TypeTag(t) => self.get_size_of(t.type_id),
         }
     }
 
@@ -898,6 +998,9 @@ impl<'a> Btf<'a> {
             BtfType::Func(_) => 0,
             BtfType::Var(_) => 0,
             BtfType::Datasec(_) => 0,
+            BtfType::Float(t) => min(self.ptr_sz, t.sz),
+            BtfType::DeclTag(_) => 0,
+            BtfType::TypeTag(t) => self.get_align_of(t.type_id),
         }
     }
 
@@ -907,6 +1010,7 @@ impl<'a> Btf<'a> {
                 BtfType::Volatile(t) => type_id = t.type_id,
                 BtfType::Const(t) => type_id = t.type_id,
                 BtfType::Restrict(t) => type_id = t.type_id,
+                BtfType::TypeTag(t) => type_id = t.type_id,
                 _ => return type_id,
             }
         }
@@ -919,6 +1023,7 @@ impl<'a> Btf<'a> {
                 BtfType::Const(t) => type_id = t.type_id,
                 BtfType::Restrict(t) => type_id = t.type_id,
                 BtfType::Typedef(t) => type_id = t.type_id,
+                BtfType::TypeTag(t) => type_id = t.type_id,
                 _ => return type_id,
             }
         }
@@ -1023,8 +1128,10 @@ impl<'a> Btf<'a> {
             | BtfType::Volatile(_)
             | BtfType::Const(_)
             | BtfType::Restrict(_)
-            | BtfType::Func(_) => common,
-            BtfType::Int(_) | BtfType::Var(_) => common + size_of::<u32>(),
+            | BtfType::Func(_)
+            | BtfType::Float(_)
+            | BtfType::TypeTag(_) => common,
+            BtfType::Int(_) | BtfType::Var(_) | BtfType::DeclTag(_) => common + size_of::<u32>(),
             BtfType::Array(_) => common + size_of::<btf_array>(),
             BtfType::Struct(t) => common + t.members.len() * size_of::<btf_member>(),
             BtfType::Union(t) => common + t.members.len() * size_of::<btf_member>(),
@@ -1037,7 +1144,7 @@ impl<'a> Btf<'a> {
     fn load_type(&self, data: &'a [u8], strs: &'a [u8]) -> BtfResult<BtfType<'a>> {
         let t = data.pread_with::<btf_type>(0, self.endian)?;
         let extra = &data[size_of::<btf_type>()..];
-        let kind = (t.info >> 24) & 0xf;
+        let kind = Btf::get_kind(t.info);
         match kind {
             BTF_KIND_INT => self.load_int(&t, extra, strs),
             BTF_KIND_PTR => Ok(BtfType::Ptr(BtfPtr { type_id: t.type_id })),
@@ -1056,10 +1163,25 @@ impl<'a> Btf<'a> {
             BTF_KIND_FUNC => Ok(BtfType::Func(BtfFunc {
                 name: Btf::get_btf_str(strs, t.name_off)?,
                 proto_type_id: t.type_id,
+                kind: match Btf::get_vlen(t.info) {
+                    BTF_FUNC_STATIC => BtfFuncKind::Static,
+                    BTF_FUNC_GLOBAL => BtfFuncKind::Global,
+                    BTF_FUNC_EXTERN => BtfFuncKind::Extern,
+                    _ => BtfFuncKind::Unknown,
+                },
             })),
             BTF_KIND_FUNC_PROTO => self.load_func_proto(&t, extra, strs),
             BTF_KIND_VAR => self.load_var(&t, extra, strs),
             BTF_KIND_DATASEC => self.load_datasec(&t, extra, strs),
+            BTF_KIND_FLOAT => Ok(BtfType::Float(BtfFloat {
+                name: Btf::get_btf_str(strs, t.name_off)?,
+                sz: t.type_id,
+            })),
+            BTF_KIND_DECL_TAG => self.load_decl_tag(&t, extra, strs),
+            BTF_KIND_TYPE_TAG => Ok(BtfType::TypeTag(BtfTypeTag {
+                name: Btf::get_btf_str(strs, t.name_off)?,
+                type_id: t.type_id,
+            })),
             _ => btf_error(format!("Unknown BTF kind: {}", kind)),
         }
     }
@@ -1120,7 +1242,7 @@ impl<'a> Btf<'a> {
     ) -> BtfResult<Vec<BtfMember<'a>>> {
         let mut res = Vec::new();
         let mut off: usize = 0;
-        let bits = Btf::get_kind(t.info);
+        let bits = Btf::get_kind_flag(t.info);
 
         for _ in 0..Btf::get_vlen(t.info) {
             let m = extra.pread_with::<btf_member>(off, self.endian)?;
@@ -1157,7 +1279,7 @@ impl<'a> Btf<'a> {
     fn load_fwd(&self, t: &btf_type, strs: &'a [u8]) -> BtfResult<BtfType<'a>> {
         Ok(BtfType::Fwd(BtfFwd {
             name: Btf::get_btf_str(strs, t.name_off)?,
-            kind: if Btf::get_kind(t.info) {
+            kind: if Btf::get_kind_flag(t.info) {
                 BtfFwdKind::Union
             } else {
                 BtfFwdKind::Struct
@@ -1229,11 +1351,29 @@ impl<'a> Btf<'a> {
         }))
     }
 
+    fn load_decl_tag(
+        &self,
+        t: &btf_type,
+        extra: &'a [u8],
+        strs: &'a [u8],
+    ) -> BtfResult<BtfType<'a>> {
+        let comp_idx = extra.pread_with::<u32>(0, self.endian)?;
+        Ok(BtfType::DeclTag(BtfDeclTag {
+            name: Btf::get_btf_str(strs, t.name_off)?,
+            type_id: t.type_id,
+            comp_idx: comp_idx,
+        }))
+    }
+
     fn get_vlen(info: u32) -> u32 {
         info & 0xffff
     }
 
-    fn get_kind(info: u32) -> bool {
+    fn get_kind(info: u32) -> u32 {
+        (info >> 24) & 0x1f
+    }
+
+    fn get_kind_flag(info: u32) -> bool {
         (info >> 31) == 1
     }
 

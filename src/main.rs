@@ -374,7 +374,7 @@ fn stat_btf(elf: &object::ElfFile) -> BtfResult<()> {
                     line_sz: usize,
                     core_reloc_cnt: usize,
                     core_reloc_sz: usize,
-                };
+                }
                 let new_sec = || Section {
                     func_cnt: 0,
                     func_sz: 0,
