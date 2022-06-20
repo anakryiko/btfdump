@@ -426,6 +426,7 @@ impl<'a, 'b> Relocator<'a, 'b> {
             BtfCoreRelocKind::LocalTypeId
             | BtfCoreRelocKind::TargetTypeId
             | BtfCoreRelocKind::TypeExists
+            | BtfCoreRelocKind::TypeMatches
             | BtfCoreRelocKind::TypeSize => true,
             _ => false,
         }
