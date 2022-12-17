@@ -1,6 +1,6 @@
 [package]
 name = "btfdump"
-description = "Tool to dump and work with BTF."
+description = "BTF introspection tool"
 version = "0.0.1"
 authors = ["Andrii Nakryiko <andriin@fb.com>"]
 license = "BSD-2-Clause"
