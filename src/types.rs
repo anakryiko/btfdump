@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 use std::cmp::{max, min};
-use std::ffi::CStr;
+use std::ffi::{c_char, CStr};
 use std::fmt;
 use std::mem::size_of;
 
@@ -1535,7 +1535,7 @@ impl<'a> Btf<'a> {
     }
 
     fn get_btf_str(strs: &[u8], off: u32) -> BtfResult<&str> {
-        let c_str = unsafe { CStr::from_ptr(&strs[off as usize] as *const u8 as *const i8) };
+        let c_str = unsafe { CStr::from_ptr(&strs[off as usize] as *const u8 as *const c_char) };
         Ok(c_str.to_str()?)
     }
 }
