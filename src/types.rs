@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::cmp::{max, min};
 use std::ffi::{c_char, CStr};
 use std::fmt;
@@ -1032,7 +1031,7 @@ impl<'a> Btf<'a> {
         }
     }
 
-    pub fn load(elf: &object::ElfFile<'a>) -> BtfResult<Btf<'a>> {
+    pub fn load(elf: &object::File<'a>) -> BtfResult<Btf<'a>> {
         let endian = if elf.is_little_endian() {
             scroll::LE
         } else {
@@ -1040,7 +1039,7 @@ impl<'a> Btf<'a> {
         };
         let mut btf = Btf::<'a> {
             endian: endian,
-            ptr_sz: if elf.elf().is_64 { 8 } else { 4 },
+            ptr_sz: if elf.is_64() { 8 } else { 4 },
             types: vec![BtfType::Void],
             has_ext: false,
             func_secs: Vec::new(),
@@ -1052,7 +1051,7 @@ impl<'a> Btf<'a> {
             .section_by_name(BTF_ELF_SEC)
             .ok_or_else(|| Box::new(BtfError::new("No .BTF section found!")))?;
         let data = match btf_section.data() {
-            Cow::Borrowed(d) => d,
+            Ok(d) => d,
             _ => panic!("expected borrowed data"),
         };
         let hdr = data.pread_with::<btf_header>(0, endian)?;
@@ -1081,7 +1080,7 @@ impl<'a> Btf<'a> {
         if let Some(ext_section) = elf.section_by_name(BTF_EXT_ELF_SEC) {
             btf.has_ext = true;
             let ext_data = match ext_section.data() {
-                Cow::Borrowed(d) => d,
+                Ok(d) => d,
                 _ => panic!("expected borrowed data"),
             };
             let ext_hdr = ext_data.pread_with::<btf_ext_header_v1>(0, endian)?;

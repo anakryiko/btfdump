@@ -49,9 +49,9 @@ bitflags! {
         const LINEINFOS     = 0b0100;
         const RELOCS        = 0b1000;
 
-        const DEFAULT = Self::TYPES.bits | Self::RELOCS.bits;
-        const EXT     = Self::FUNCINFOS.bits | Self::LINEINFOS.bits | Self::RELOCS.bits;
-        const ALL     = Self::TYPES.bits | Self::EXT.bits;
+        const DEFAULT = Self::TYPES.bits() | Self::RELOCS.bits();
+        const EXT     = Self::FUNCINFOS.bits() | Self::LINEINFOS.bits() | Self::RELOCS.bits();
+        const ALL     = Self::TYPES.bits() | Self::EXT.bits();
     }
 }
 
@@ -87,15 +87,10 @@ struct QueryArgs {
     #[structopt(short = "n", long = "name")]
     /// Regex of type names to include
     name: Option<String>,
-    #[structopt(
-        short = "t",
-        long = "type",
-        parse(try_from_str),
-        raw(use_delimiter = "true")
-    )]
+    #[structopt(short = "t", long = "type", parse(try_from_str), use_delimiter = true)]
     /// BTF type kinds to include
     kinds: Vec<BtfKind>,
-    #[structopt(long = "id", parse(try_from_str), raw(use_delimiter = "true"))]
+    #[structopt(long = "id", parse(try_from_str), use_delimiter = true)]
     /// Type IDs to include
     ids: Vec<u32>,
 }
@@ -113,10 +108,7 @@ enum Cmd {
             short = "f",
             long = "format",
             default_value = "human",
-            raw(
-                possible_values = r#"&["human", "h", "c", "json", "j", "json-pretty", "jp"]"#,
-                next_line_help = "true"
-            )
+            possible_values = &["human", "h", "c", "json", "j", "json-pretty", "jp"],
         )]
         /// Output format
         format: DumpFormat,
@@ -124,10 +116,7 @@ enum Cmd {
             short = "d",
             long = "dataset",
             default_value = "default",
-            raw(
-                possible_values = r#"&["default", "def", "d", "types", "type", "t", "funcs", "func", "f", "lines", "line", "l", "relocs", "reloc", "r", "all", "a", "exts", "ext", "none"]"#,
-                next_line_help = "true"
-            )
+            possible_values = &["default", "def", "d", "types", "type", "t", "funcs", "func", "f", "lines", "line", "l", "relocs", "reloc", "r", "all", "a", "exts", "ext", "none"],
         )]
         /// Datasets to output
         datasets: Datasets,
@@ -175,7 +164,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         } => {
             let file = std::fs::File::open(&file)?;
             let file = unsafe { memmap::Mmap::map(&file) }?;
-            let file = object::ElfFile::parse(&*file)?;
+            let file = object::File::parse(&*file)?;
             let btf = Btf::load(&file)?;
             let filter = create_query_filter(query)?;
 
@@ -238,7 +227,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         } => {
             let local_file = std::fs::File::open(&local_file)?;
             let local_mmap = unsafe { memmap::Mmap::map(&local_file) }?;
-            let local_elf = object::ElfFile::parse(&*local_mmap)?;
+            let local_elf = object::File::parse(&*local_mmap)?;
             let local_btf = Btf::load(&local_elf)?;
             if !local_btf.has_ext() {
                 return btf_error(format!(
@@ -248,7 +237,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
             let targ_file = std::fs::File::open(&targ_file)?;
             let targ_mmap = unsafe { memmap::Mmap::map(&targ_file) }?;
-            let targ_elf = object::ElfFile::parse(&*targ_mmap)?;
+            let targ_elf = object::File::parse(&*targ_mmap)?;
             let targ_btf = Btf::load(&targ_elf)?;
             let cfg = RelocatorCfg { verbose: verbose };
             let mut relocator = Relocator::new(&targ_btf, &local_btf, cfg);
@@ -260,7 +249,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         Cmd::Stat { file } => {
             let file = std::fs::File::open(&file)?;
             let file = unsafe { memmap::Mmap::map(&file) }?;
-            let file = object::ElfFile::parse(&*file)?;
+            let file = object::File::parse(&*file)?;
             stat_btf(&file)?;
         }
     }
@@ -301,14 +290,14 @@ fn create_query_filter(q: QueryArgs) -> BtfResult<Box<dyn Fn(u32, &BtfType) -> b
     }
 }
 
-fn stat_btf(elf: &object::ElfFile) -> BtfResult<()> {
+fn stat_btf(elf: &object::File) -> BtfResult<()> {
     let endian = if elf.is_little_endian() {
         scroll::LE
     } else {
         scroll::BE
     };
     if let Some(btf_section) = elf.section_by_name(BTF_ELF_SEC) {
-        let data = btf_section.data();
+        let data = btf_section.data()?;
         let hdr = data.pread_with::<btf_header>(0, endian)?;
         println!(
             "{} ELF section\n=======================================",
@@ -327,7 +316,7 @@ fn stat_btf(elf: &object::ElfFile) -> BtfResult<()> {
         BTF_EXT_ELF_SEC
     );
     if let Some(ext_section) = elf.section_by_name(BTF_EXT_ELF_SEC) {
-        let ext_data = ext_section.data();
+        let ext_data = ext_section.data()?;
         let ext_hdr = ext_data.pread_with::<btf_ext_header_v1>(0, endian)?;
         println!("Data size:\t{}", ext_data.len());
         println!("Header size:\t{}", ext_hdr.hdr_len);
