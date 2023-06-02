@@ -34,7 +34,8 @@ pub const BTF_KIND_DATASEC: u32 = 15;
 pub const BTF_KIND_FLOAT: u32 = 16;
 pub const BTF_KIND_DECL_TAG: u32 = 17;
 pub const BTF_KIND_TYPE_TAG: u32 = 18;
-pub const BTF_KIND_MAX: u32 = 18;
+pub const BTF_KIND_ENUM64: u32 = 19;
+pub const BTF_KIND_MAX: u32 = 19;
 pub const NR_BTF_KINDS: u32 = BTF_KIND_MAX + 1;
 
 pub const BTF_INT_SIGNED: u32 = 0b001;
@@ -106,6 +107,14 @@ pub struct btf_datasec_var {
     pub type_id: u32,
     pub offset: u32,
     pub size: u32,
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, DerivePread, Pwrite, IOread, IOwrite, SizeWith)]
+pub struct btf_enum64 {
+    pub name_off: u32,
+    pub val_lo32: u32,
+    pub val_hi32: u32,
 }
 
 #[repr(C)]
@@ -343,6 +352,42 @@ impl<'a> fmt::Display for BtfEnum<'a> {
             f,
             "<{}> '{}' sz:{} n:{}",
             "ENUM",
+            disp_name(self.name),
+            self.sz,
+            self.values.len()
+        )?;
+        for i in 0..self.values.len() {
+            write!(f, "\n\t#{:02} {}", i, self.values[i])?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub struct BtfEnum64Value<'a> {
+    pub name: &'a str,
+    pub value: i64,
+}
+
+impl<'a> fmt::Display for BtfEnum64Value<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} = {}", disp_name(self.name), self.value)
+    }
+}
+
+#[derive(Debug)]
+pub struct BtfEnum64<'a> {
+    pub name: &'a str,
+    pub sz: u32,
+    pub values: Vec<BtfEnum64Value<'a>>,
+}
+
+impl<'a> fmt::Display for BtfEnum64<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "<{}> '{}' sz:{} n:{}",
+            "ENUM64",
             disp_name(self.name),
             self.sz,
             self.values.len()
@@ -661,6 +706,7 @@ pub enum BtfType<'a> {
     Float(BtfFloat<'a>),
     DeclTag(BtfDeclTag<'a>),
     TypeTag(BtfTypeTag<'a>),
+    Enum64(BtfEnum64<'a>),
 }
 
 impl<'a> fmt::Display for BtfType<'a> {
@@ -685,6 +731,7 @@ impl<'a> fmt::Display for BtfType<'a> {
             BtfType::Float(t) => t.fmt(f),
             BtfType::DeclTag(t) => t.fmt(f),
             BtfType::TypeTag(t) => t.fmt(f),
+            BtfType::Enum64(t) => t.fmt(f),
         }
     }
 }
@@ -711,6 +758,7 @@ impl<'a> BtfType<'a> {
             BtfType::Float(_) => BtfKind::Float,
             BtfType::DeclTag(_) => BtfKind::DeclTag,
             BtfType::TypeTag(_) => BtfKind::TypeTag,
+            BtfType::Enum64(_) => BtfKind::Enum64,
         }
     }
 
@@ -735,6 +783,7 @@ impl<'a> BtfType<'a> {
             BtfType::Float(t) => &t.name,
             BtfType::DeclTag(t) => &t.name,
             BtfType::TypeTag(t) => &t.name,
+            BtfType::Enum64(t) => &t.name,
         }
     }
 }
@@ -760,6 +809,7 @@ pub enum BtfKind {
     Float,
     DeclTag,
     TypeTag,
+    Enum64,
 }
 
 impl std::str::FromStr for BtfKind {
@@ -786,6 +836,7 @@ impl std::str::FromStr for BtfKind {
             "float" => Ok(BtfKind::Float),
             "decl_tag" => Ok(BtfKind::DeclTag),
             "type_tag" => Ok(BtfKind::TypeTag),
+            "enum64" | "e64" => Ok(BtfKind::Enum64),
             _ => Err(BtfError::new_owned(format!(
                 "unrecognized btf kind: '{}'",
                 s
@@ -967,6 +1018,7 @@ impl<'a> Btf<'a> {
             BtfType::Float(t) => t.sz,
             BtfType::DeclTag(t) => self.get_size_of(t.type_id),
             BtfType::TypeTag(t) => self.get_size_of(t.type_id),
+            BtfType::Enum64(t) => t.sz,
         }
     }
 
@@ -1003,6 +1055,7 @@ impl<'a> Btf<'a> {
             BtfType::Float(t) => min(self.ptr_sz, t.sz),
             BtfType::DeclTag(_) => 0,
             BtfType::TypeTag(t) => self.get_align_of(t.type_id),
+            BtfType::Enum64(t) => min(self.ptr_sz, t.sz),
         }
     }
 
@@ -1138,6 +1191,7 @@ impl<'a> Btf<'a> {
             BtfType::Struct(t) => common + t.members.len() * size_of::<btf_member>(),
             BtfType::Union(t) => common + t.members.len() * size_of::<btf_member>(),
             BtfType::Enum(t) => common + t.values.len() * size_of::<btf_enum>(),
+            BtfType::Enum64(t) => common + t.values.len() * size_of::<btf_enum64>(),
             BtfType::FuncProto(t) => common + t.params.len() * size_of::<btf_param>(),
             BtfType::Datasec(t) => common + t.vars.len() * size_of::<btf_datasec_var>(),
         }
@@ -1184,6 +1238,7 @@ impl<'a> Btf<'a> {
                 name: Btf::get_btf_str(strs, t.name_off)?,
                 type_id: t.type_id,
             })),
+            BTF_KIND_ENUM64 => self.load_enum64(&t, extra, strs),
             _ => btf_error(format!("Unknown BTF kind: {}", kind)),
         }
     }
@@ -1272,6 +1327,25 @@ impl<'a> Btf<'a> {
             off += size_of::<btf_enum>();
         }
         Ok(BtfType::Enum(BtfEnum {
+            name: Btf::get_btf_str(strs, t.name_off)?,
+            sz: t.type_id, // it's a type/size union in C
+            values: vals,
+        }))
+    }
+
+    fn load_enum64(&self, t: &btf_type, extra: &'a [u8], strs: &'a [u8]) -> BtfResult<BtfType<'a>> {
+        let mut vals = Vec::new();
+        let mut off: usize = 0;
+
+        for _ in 0..Btf::get_vlen(t.info) {
+            let v = extra.pread_with::<btf_enum64>(off, self.endian)?;
+            vals.push(BtfEnum64Value {
+                name: Btf::get_btf_str(strs, v.name_off)?,
+                value: i64::from(v.val_lo32) + i64::from(v.val_hi32) << 32,
+            });
+            off += size_of::<btf_enum64>();
+        }
+        Ok(BtfType::Enum64(BtfEnum64 {
             name: Btf::get_btf_str(strs, t.name_off)?,
             sz: t.type_id, // it's a type/size union in C
             values: vals,

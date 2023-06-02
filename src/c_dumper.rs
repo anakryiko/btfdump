@@ -191,6 +191,14 @@ impl<'a> CDumper<'a> {
                 // report this was strong link
                 return Ok(true);
             }
+            BtfType::Enum64(t) => {
+                if !t.name.is_empty() {
+                    order.push(id);
+                }
+                self.set_order_state(id, OrderState::Ordered);
+                // report this was strong link
+                return Ok(true);
+            }
             BtfType::Fwd(t) => {
                 if !t.name.is_empty() {
                     order.push(id);
@@ -313,6 +321,13 @@ impl<'a> CDumper<'a> {
             BtfType::Enum(t) => {
                 if top_level_def {
                     self.emit_enum_def(id, t, 0);
+                    println!(";\n");
+                }
+                self.set_emit_state(id, EmitState::Emitted);
+            }
+            BtfType::Enum64(t) => {
+                if top_level_def {
+                    self.emit_enum64_def(id, t, 0);
                     println!(";\n");
                 }
                 self.set_emit_state(id, EmitState::Emitted);
@@ -494,6 +509,24 @@ impl<'a> CDumper<'a> {
         }
     }
 
+    fn emit_enum64_def(&mut self, id: u32, t: &'a BtfEnum64, lvl: usize) {
+        if NAMES_BLACKLIST.is_match(&t.name) {
+            return;
+        }
+        let name = self.resolve_type_name(NamedKind::Type, id, t.name);
+        if t.values.is_empty() {
+            // enum fwd
+            print!("enum{}{}", sep(&name), name);
+        } else {
+            print!("enum{}{} {{", sep(&name), name);
+            for v in &t.values {
+                let val_uniq_name = self.resolve_name(NamedKind::Ident, &v.name);
+                print!("\n{}{} = {},", pfx(lvl + 1), &val_uniq_name, v.value);
+            }
+            print!("\n{}}}", pfx(lvl));
+        }
+    }
+
     fn emit_fwd_def(&mut self, id: u32, t: &'a BtfFwd) {
         if NAMES_BLACKLIST.is_match(&t.name) {
             return;
@@ -586,6 +619,15 @@ impl<'a> CDumper<'a> {
                     self.emit_mods(&mut chain);
                     if t.name.is_empty() {
                         self.emit_enum_def(id, t, lvl); // inline anonymous enum
+                    } else {
+                        let uniq_name = self.resolve_type_name(NamedKind::Type, id, t.name);
+                        print!("enum {}", &uniq_name);
+                    }
+                }
+                BtfType::Enum64(t) => {
+                    self.emit_mods(&mut chain);
+                    if t.name.is_empty() {
+                        self.emit_enum64_def(id, t, lvl); // inline anonymous enum
                     } else {
                         let uniq_name = self.resolve_type_name(NamedKind::Type, id, t.name);
                         print!("enum {}", &uniq_name);
