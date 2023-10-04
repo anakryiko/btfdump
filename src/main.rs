@@ -4,12 +4,12 @@ use std::error::Error;
 use std::io::Write;
 
 use bitflags::bitflags;
+use clap::StructOpt;
 use memmap;
 use object::{Object, ObjectSection};
 use regex::Regex;
 use scroll::Pread;
 use std::mem::size_of;
-use structopt::StructOpt;
 
 use btf::c_dumper;
 use btf::relocator::{Relocator, RelocatorCfg};
@@ -84,68 +84,68 @@ impl std::str::FromStr for Datasets {
 
 #[derive(StructOpt)]
 struct QueryArgs {
-    #[structopt(short = "n", long = "name")]
+    #[clap(short = 'n', long = "name")]
     /// Regex of type names to include
     name: Option<String>,
-    #[structopt(short = "t", long = "type", parse(try_from_str), use_delimiter = true)]
+    #[clap(short = 't', long = "type", parse(try_from_str), use_delimiter = true)]
     /// BTF type kinds to include
     kinds: Vec<BtfKind>,
-    #[structopt(long = "id", parse(try_from_str), use_delimiter = true)]
+    #[clap(long = "id", parse(try_from_str), use_delimiter = true)]
     /// Type IDs to include
     ids: Vec<u32>,
 }
 
 #[derive(StructOpt)]
-#[structopt(name = "btfdump")]
+#[clap(name = "btfdump")]
 /// BTF introspection and manipulation tool
 enum Cmd {
-    #[structopt(name = "dump")]
+    #[clap(name = "dump")]
     /// Query and pretty-print matching BTF data
     Dump {
-        #[structopt(parse(from_os_str))]
+        #[clap(parse(from_os_str))]
         file: std::path::PathBuf,
-        #[structopt(
-            short = "f",
+        #[clap(
+            short = 'f',
             long = "format",
             default_value = "human",
             possible_values = &["human", "h", "c", "json", "j", "json-pretty", "jp"],
         )]
         /// Output format
         format: DumpFormat,
-        #[structopt(
-            short = "d",
+        #[clap(
+            short = 'd',
             long = "dataset",
             default_value = "default",
             possible_values = &["default", "def", "d", "types", "type", "t", "funcs", "func", "f", "lines", "line", "l", "relocs", "reloc", "r", "all", "a", "exts", "ext", "none"],
         )]
         /// Datasets to output
         datasets: Datasets,
-        #[structopt(flatten)]
+        #[clap(flatten)]
         query: QueryArgs,
-        #[structopt(short = "v", long = "verbose")]
+        #[clap(short = 'v', long = "verbose")]
         /// Output verbose log
         verbose: bool,
-        #[structopt(long = "union-as-struct")]
+        #[clap(long = "union-as-struct")]
         /// Replace unions with structs (for BPF CORE)
         union_as_struct: bool,
     },
-    #[structopt(name = "reloc")]
+    #[clap(name = "reloc")]
     /// Print detailed relocation information
     Reloc {
-        #[structopt(parse(from_os_str))]
+        #[clap(parse(from_os_str))]
         /// Kernel image (target BTF)
         targ_file: std::path::PathBuf,
-        #[structopt(parse(from_os_str))]
+        #[clap(parse(from_os_str))]
         /// BPF program (local BTF)
         local_file: std::path::PathBuf,
-        #[structopt(short = "v", long = "verbose")]
+        #[clap(short = 'v', long = "verbose")]
         /// Output verbose log
         verbose: bool,
     },
-    #[structopt(name = "stat")]
+    #[clap(name = "stat")]
     /// Stats about .BTF and .BTF.ext data
     Stat {
-        #[structopt(parse(from_os_str))]
+        #[clap(parse(from_os_str))]
         file: std::path::PathBuf,
     },
 }
