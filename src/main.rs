@@ -4,10 +4,7 @@ use std::error::Error;
 use std::io::Write;
 
 use bitflags::bitflags;
-use clap::{
-    builder::{PossibleValuesParser, TypedValueParser as _},
-    StructOpt,
-};
+use clap::builder::TypedValueParser as _;
 use memmap;
 use object::{Object, ObjectSection};
 use regex::Regex;
@@ -87,7 +84,7 @@ impl std::str::FromStr for Datasets {
     }
 }
 
-#[derive(StructOpt)]
+#[derive(clap::Parser)]
 struct QueryArgs {
     #[clap(short = 'n', long = "name")]
     /// Regex of type names to include
@@ -100,7 +97,7 @@ struct QueryArgs {
     ids: Vec<u32>,
 }
 
-#[derive(StructOpt)]
+#[derive(clap::Parser)]
 #[clap(name = "btfdump")]
 /// BTF introspection and manipulation tool
 enum Cmd {
@@ -112,7 +109,7 @@ enum Cmd {
             short = 'f',
             long = "format",
             default_value = "human",
-            value_parser = PossibleValuesParser::new([
+            value_parser = clap::builder::PossibleValuesParser::new([
                 "human",
                 "h",
                 "c",
@@ -128,7 +125,7 @@ enum Cmd {
             short = 'd',
             long = "dataset",
             default_value = "default",
-            value_parser = PossibleValuesParser::new([
+            value_parser = clap::builder::PossibleValuesParser::new([
                 "default",
                 "def",
                 "d",
