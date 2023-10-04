@@ -18,7 +18,7 @@ name = "btf"
 path = "src/main.rs"
 
 [dependencies]
-clap = { version = "3.0", features = ["derive", "deprecated"] }
+clap = { version = "4.0", features = ["derive", "wrap_help"] }
 goblin = "0.6.1"
 object = "0.31.1"
 memmap = "0.7.0"
