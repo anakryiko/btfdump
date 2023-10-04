@@ -6,7 +6,7 @@ pub mod c_dumper;
 pub mod relocator;
 pub mod types;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct BtfError {
     details: String,
 }

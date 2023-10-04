@@ -4,19 +4,23 @@ use std::error::Error;
 use std::io::Write;
 
 use bitflags::bitflags;
-use clap::StructOpt;
+use clap::{
+    builder::{PossibleValuesParser, TypedValueParser as _},
+    StructOpt,
+};
 use memmap;
 use object::{Object, ObjectSection};
 use regex::Regex;
 use scroll::Pread;
 use std::mem::size_of;
+use std::str::FromStr as _;
 
 use btf::c_dumper;
 use btf::relocator::{Relocator, RelocatorCfg};
 use btf::types::*;
 use btf::{btf_error, BtfError, BtfResult};
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 enum DumpFormat {
     Human,
     Json,
@@ -42,6 +46,7 @@ impl std::str::FromStr for DumpFormat {
 }
 
 bitflags! {
+    #[derive(Clone)]
     struct Datasets : u32 {
         const NONE          = 0b0000;
         const TYPES         = 0b0001;
@@ -87,10 +92,10 @@ struct QueryArgs {
     #[clap(short = 'n', long = "name")]
     /// Regex of type names to include
     name: Option<String>,
-    #[clap(short = 't', long = "type", parse(try_from_str), use_delimiter = true)]
+    #[clap(short = 't', long = "type", use_value_delimiter = true)]
     /// BTF type kinds to include
     kinds: Vec<BtfKind>,
-    #[clap(long = "id", parse(try_from_str), use_delimiter = true)]
+    #[clap(long = "id", use_value_delimiter = true)]
     /// Type IDs to include
     ids: Vec<u32>,
 }
@@ -102,13 +107,20 @@ enum Cmd {
     #[clap(name = "dump")]
     /// Query and pretty-print matching BTF data
     Dump {
-        #[clap(parse(from_os_str))]
         file: std::path::PathBuf,
         #[clap(
             short = 'f',
             long = "format",
             default_value = "human",
-            possible_values = &["human", "h", "c", "json", "j", "json-pretty", "jp"],
+            value_parser = PossibleValuesParser::new([
+                "human",
+                "h",
+                "c",
+                "json",
+                "j",
+                "json-pretty",
+                "jp",
+            ]).map(|s| DumpFormat::from_str(&s).unwrap()),
         )]
         /// Output format
         format: DumpFormat,
@@ -116,7 +128,28 @@ enum Cmd {
             short = 'd',
             long = "dataset",
             default_value = "default",
-            possible_values = &["default", "def", "d", "types", "type", "t", "funcs", "func", "f", "lines", "line", "l", "relocs", "reloc", "r", "all", "a", "exts", "ext", "none"],
+            value_parser = PossibleValuesParser::new([
+                "default",
+                "def",
+                "d",
+                "types",
+                "type",
+                "t",
+                "funcs",
+                "func",
+                "f",
+                "lines",
+                "line",
+                "l",
+                "relocs",
+                "reloc",
+                "r",
+                "all",
+                "a",
+                "exts",
+                "ext",
+                "none",
+            ]).map(|s| Datasets::from_str(&s).unwrap()),
         )]
         /// Datasets to output
         datasets: Datasets,
@@ -132,10 +165,8 @@ enum Cmd {
     #[clap(name = "reloc")]
     /// Print detailed relocation information
     Reloc {
-        #[clap(parse(from_os_str))]
         /// Kernel image (target BTF)
         targ_file: std::path::PathBuf,
-        #[clap(parse(from_os_str))]
         /// BPF program (local BTF)
         local_file: std::path::PathBuf,
         #[clap(short = 'v', long = "verbose")]
@@ -144,14 +175,11 @@ enum Cmd {
     },
     #[clap(name = "stat")]
     /// Stats about .BTF and .BTF.ext data
-    Stat {
-        #[clap(parse(from_os_str))]
-        file: std::path::PathBuf,
-    },
+    Stat { file: std::path::PathBuf },
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let cmd = Cmd::from_args();
+    let cmd = clap::Parser::parse();
 
     match cmd {
         Cmd::Dump {
