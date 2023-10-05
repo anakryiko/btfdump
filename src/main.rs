@@ -17,6 +17,8 @@ use btf::relocator::{Relocator, RelocatorCfg};
 use btf::types::*;
 use btf::{btf_error, BtfError, BtfResult};
 
+const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+
 #[derive(Clone, Debug)]
 enum DumpFormat {
     Human,
@@ -173,6 +175,10 @@ enum Cmd {
     #[clap(name = "stat")]
     /// Stats about .BTF and .BTF.ext data
     Stat { file: std::path::PathBuf },
+
+    #[clap(name = "version")]
+    /// Print btfdump version
+    Version,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -276,6 +282,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             let file = unsafe { memmap::Mmap::map(&file) }?;
             let file = object::File::parse(&*file)?;
             stat_btf(&file)?;
+        }
+        Cmd::Version => {
+            println!("btfdump v{}", VERSION);
         }
     }
     Ok(())
