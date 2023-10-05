@@ -1,7 +1,7 @@
 [package]
 name = "btfdump"
 description = "BTF introspection tool"
-version = "0.0.3"
+version = "0.0.4"
 authors = ["Andrii Nakryiko <andrii@kernel.org>"]
 license = "BSD-2-Clause"
 edition = "2018"
