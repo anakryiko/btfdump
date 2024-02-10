@@ -195,8 +195,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         } => {
             let file = std::fs::File::open(&file)?;
             let file = unsafe { memmap::Mmap::map(&file) }?;
-            let file = object::File::parse(&*file)?;
-            let btf = Btf::load(&file)?;
+            let btf = Btf::load_file(file.as_ref())?;
             let filter = create_query_filter(query)?;
 
             match format {
@@ -259,7 +258,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             let local_file = std::fs::File::open(&local_file)?;
             let local_mmap = unsafe { memmap::Mmap::map(&local_file) }?;
             let local_elf = object::File::parse(&*local_mmap)?;
-            let local_btf = Btf::load(&local_elf)?;
+            let local_btf = Btf::load_elf(&local_elf)?;
             if !local_btf.has_ext() {
                 return btf_error(format!(
                     "No {} section found for local ELF file, can't perform relocations.",
@@ -269,7 +268,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             let targ_file = std::fs::File::open(&targ_file)?;
             let targ_mmap = unsafe { memmap::Mmap::map(&targ_file) }?;
             let targ_elf = object::File::parse(&*targ_mmap)?;
-            let targ_btf = Btf::load(&targ_elf)?;
+            let targ_btf = Btf::load_elf(&targ_elf)?;
             let cfg = RelocatorCfg { verbose: verbose };
             let mut relocator = Relocator::new(&targ_btf, &local_btf, cfg);
             let relocs = relocator.relocate()?;
@@ -363,7 +362,7 @@ fn stat_btf(elf: &object::File) -> BtfResult<()> {
     } else {
         println!("{} not found.", BTF_EXT_ELF_SEC);
     }
-    match Btf::load(elf) {
+    match Btf::load_elf(elf) {
         Err(e) => println!("Failed to parse BTF data: {}", e),
         Ok(btf) => {
             let mut type_stats: HashMap<BtfKind, (usize, usize)> = HashMap::new();
