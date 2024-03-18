@@ -4,7 +4,7 @@ use std::fmt;
 use std::mem::size_of;
 
 use object::{Object, ObjectSection};
-use scroll::Pread;
+use scroll::{Endian, Pread};
 use scroll_derive::{IOread, IOwrite, Pread as DerivePread, Pwrite, SizeWith};
 
 use crate::{btf_error, BtfError, BtfResult};
@@ -1084,15 +1084,16 @@ impl<'a> Btf<'a> {
         }
     }
 
-    pub fn load(elf: &object::File<'a>) -> BtfResult<Btf<'a>> {
-        let endian = if elf.is_little_endian() {
-            scroll::LE
-        } else {
-            scroll::BE
-        };
+    /// Helper method which keeps the common BTF loading logic and returns
+    /// both `Btf` and a subslice with the string section.
+    fn load_from_bytes(
+        endian: Endian,
+        ptr_sz: u32,
+        data: &'a [u8],
+    ) -> BtfResult<(Btf<'a>, &'a [u8])> {
         let mut btf = Btf::<'a> {
-            endian: endian,
-            ptr_sz: if elf.is_64() { 8 } else { 4 },
+            endian,
+            ptr_sz,
             types: vec![BtfType::Void],
             has_ext: false,
             func_secs: Vec::new(),
@@ -1100,14 +1101,7 @@ impl<'a> Btf<'a> {
             core_reloc_secs: Vec::new(),
         };
 
-        let btf_section = elf
-            .section_by_name(BTF_ELF_SEC)
-            .ok_or_else(|| Box::new(BtfError::new("No .BTF section found!")))?;
-        let data = match btf_section.data() {
-            Ok(d) => d,
-            _ => panic!("expected borrowed data"),
-        };
-        let hdr = data.pread_with::<btf_header>(0, endian)?;
+        let hdr = data.pread_with::<btf_header>(0, scroll::LE)?;
         if hdr.magic != BTF_MAGIC {
             return btf_error(format!("Invalid BTF magic: {}", hdr.magic));
         }
@@ -1129,6 +1123,29 @@ impl<'a> Btf<'a> {
             off += Btf::type_size(&t);
             btf.types.push(t);
         }
+
+        Ok((btf, str_data))
+    }
+
+    /// Loads BTF information from the given ELF object file.
+    pub fn load_from_elf(elf: &object::File<'a>) -> BtfResult<Btf<'a>> {
+        let endian = if elf.is_little_endian() {
+            scroll::LE
+        } else {
+            scroll::BE
+        };
+
+        let ptr_sz = if elf.is_64() { 8 } else { 4 };
+
+        let btf_section = elf
+            .section_by_name(BTF_ELF_SEC)
+            .ok_or_else(|| Box::new(BtfError::new("No .BTF section found!")))?;
+        let data = match btf_section.data() {
+            Ok(d) => d,
+            _ => panic!("expected borrowed data"),
+        };
+
+        let (mut btf, str_data) = Self::load_from_bytes(endian, ptr_sz, data)?;
 
         if let Some(ext_section) = elf.section_by_name(BTF_EXT_ELF_SEC) {
             btf.has_ext = true;
@@ -1169,6 +1186,23 @@ impl<'a> Btf<'a> {
                 }
             }
         }
+
+        Ok(btf)
+    }
+
+    /// Loads BTF information from the given slice of bytes.
+    pub fn load_raw(data: &'a [u8]) -> BtfResult<Btf<'a>> {
+        #[cfg(target_endian = "little")]
+        let endian = scroll::LE;
+        #[cfg(target_endian = "big")]
+        let endian = scroll::BE;
+
+        #[cfg(target_pointer_width = "64")]
+        let ptr_sz = 8_u32;
+        #[cfg(target_pointer_width = "32")]
+        let ptr_sz = 4_u32;
+
+        let (btf, _) = Self::load_from_bytes(endian, ptr_sz, data)?;
 
         Ok(btf)
     }
