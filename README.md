@@ -1,5 +1,5 @@
 # btfdump
-BTF introspection tool
+BTF introspection tool.
 
 # Compiling
 `btfdump` is written in Rust and relies on standard Cargo package manager.
