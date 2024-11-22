@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
 use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::error::Error;
-use std::io::Write;
+use std::io::{Read, Seek, SeekFrom, Write};
 
 use bitflags::bitflags;
 use clap::builder::TypedValueParser as _;
@@ -193,10 +194,28 @@ fn main() -> Result<(), Box<dyn Error>> {
             verbose,
             union_as_struct,
         } => {
-            let file = std::fs::File::open(&file)?;
-            let file = unsafe { memmap::Mmap::map(&file) }?;
-            let file = object::File::parse(&*file)?;
-            let btf = Btf::load(&file)?;
+            let mut file = std::fs::File::open(&file)?;
+
+            // Read the magic number first.
+            let mut buffer = [0u8; 2];
+            file.read_exact(&mut buffer)?;
+            let magic_number: u16 = u16::from_le_bytes(buffer);
+
+            // And then the full file content.
+            let mut contents = Vec::with_capacity(usize::try_from(file.metadata()?.len())?);
+            file.seek(SeekFrom::Start(0))?;
+            file.read_to_end(&mut contents)?;
+
+            let btf = if magic_number == BTF_MAGIC {
+                // If the file starts with BTF magic number, parse BTF from the
+                // full file content.
+                Btf::load_raw(contents.as_slice())?
+            } else {
+                // Otherwise, assume it's an object file and  parse BTF from
+                // the `.BTF` section.
+                let file = object::File::parse(contents.as_slice())?;
+                Btf::load_from_elf(&file)?
+            };
             let filter = create_query_filter(query)?;
 
             match format {
@@ -259,7 +278,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             let local_file = std::fs::File::open(&local_file)?;
             let local_mmap = unsafe { memmap::Mmap::map(&local_file) }?;
             let local_elf = object::File::parse(&*local_mmap)?;
-            let local_btf = Btf::load(&local_elf)?;
+            let local_btf = Btf::load_from_elf(&local_elf)?;
             if !local_btf.has_ext() {
                 return btf_error(format!(
                     "No {} section found for local ELF file, can't perform relocations.",
@@ -269,7 +288,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             let targ_file = std::fs::File::open(&targ_file)?;
             let targ_mmap = unsafe { memmap::Mmap::map(&targ_file) }?;
             let targ_elf = object::File::parse(&*targ_mmap)?;
-            let targ_btf = Btf::load(&targ_elf)?;
+            let targ_btf = Btf::load_from_elf(&targ_elf)?;
             let cfg = RelocatorCfg { verbose: verbose };
             let mut relocator = Relocator::new(&targ_btf, &local_btf, cfg);
             let relocs = relocator.relocate()?;
@@ -363,7 +382,7 @@ fn stat_btf(elf: &object::File) -> BtfResult<()> {
     } else {
         println!("{} not found.", BTF_EXT_ELF_SEC);
     }
-    match Btf::load(elf) {
+    match Btf::load_from_elf(elf) {
         Err(e) => println!("Failed to parse BTF data: {}", e),
         Ok(btf) => {
             let mut type_stats: HashMap<BtfKind, (usize, usize)> = HashMap::new();
