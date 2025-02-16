@@ -12,7 +12,7 @@ use crate::{btf_error, BtfError, BtfResult};
 pub const BTF_ELF_SEC: &str = ".BTF";
 pub const BTF_EXT_ELF_SEC: &str = ".BTF.ext";
 
-pub const BTF_MAGIC: u16 = 0xeB9F;
+pub const BTF_MAGIC: u16 = 0xeb9f;
 pub const BTF_VERSION: u8 = 1;
 
 pub const BTF_KIND_UNKN: u32 = 0;
@@ -200,11 +200,11 @@ pub struct btf_ext_core_reloc {
     pub kind: u32,
 }
 
-const EMPTY: &'static str = "";
-const ANON_NAME: &'static str = "<anon>";
+const EMPTY: &str = "";
+const ANON_NAME: &str = "<anon>";
 
 fn disp_name(s: &str) -> &str {
-    if s == "" {
+    if s.is_empty() {
         ANON_NAME
     } else {
         s
@@ -238,7 +238,8 @@ pub struct BtfInt<'a> {
     pub encoding: BtfIntEncoding,
 }
 
-impl<'a> fmt::Display for BtfInt<'a> {
+impl fmt::Display for BtfInt<'_> {
+    #[expect(clippy::write_literal)]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -262,6 +263,7 @@ pub struct BtfPtr {
 }
 
 impl fmt::Display for BtfPtr {
+    #[expect(clippy::write_literal)]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "<{}> --> [{}]", "PTR", self.type_id)
     }
@@ -275,6 +277,7 @@ pub struct BtfArray {
 }
 
 impl fmt::Display for BtfArray {
+    #[expect(clippy::write_literal)]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -292,7 +295,7 @@ pub struct BtfMember<'a> {
     pub bit_size: u8,
 }
 
-impl<'a> fmt::Display for BtfMember<'a> {
+impl fmt::Display for BtfMember<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "'{}' off:{}", disp_name(self.name), self.bit_offset)?;
         if self.bit_size != 0 {
@@ -310,7 +313,7 @@ pub struct BtfComposite<'a> {
     pub members: Vec<BtfMember<'a>>,
 }
 
-impl<'a> fmt::Display for BtfComposite<'a> {
+impl fmt::Display for BtfComposite<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -333,7 +336,7 @@ pub struct BtfEnumValue<'a> {
     pub value: i32,
 }
 
-impl<'a> fmt::Display for BtfEnumValue<'a> {
+impl fmt::Display for BtfEnumValue<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} = {}", disp_name(self.name), self.value)
     }
@@ -346,7 +349,8 @@ pub struct BtfEnum<'a> {
     pub values: Vec<BtfEnumValue<'a>>,
 }
 
-impl<'a> fmt::Display for BtfEnum<'a> {
+impl fmt::Display for BtfEnum<'_> {
+    #[expect(clippy::write_literal)]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -369,7 +373,7 @@ pub struct BtfEnum64Value<'a> {
     pub value: i64,
 }
 
-impl<'a> fmt::Display for BtfEnum64Value<'a> {
+impl fmt::Display for BtfEnum64Value<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} = {}", disp_name(self.name), self.value)
     }
@@ -382,7 +386,8 @@ pub struct BtfEnum64<'a> {
     pub values: Vec<BtfEnum64Value<'a>>,
 }
 
-impl<'a> fmt::Display for BtfEnum64<'a> {
+impl fmt::Display for BtfEnum64<'_> {
+    #[expect(clippy::write_literal)]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -420,7 +425,8 @@ pub struct BtfFwd<'a> {
     pub kind: BtfFwdKind,
 }
 
-impl<'a> fmt::Display for BtfFwd<'a> {
+impl fmt::Display for BtfFwd<'_> {
+    #[expect(clippy::write_literal)]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -438,7 +444,8 @@ pub struct BtfTypedef<'a> {
     pub type_id: u32,
 }
 
-impl<'a> fmt::Display for BtfTypedef<'a> {
+impl fmt::Display for BtfTypedef<'_> {
+    #[expect(clippy::write_literal)]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -456,6 +463,7 @@ pub struct BtfVolatile {
 }
 
 impl fmt::Display for BtfVolatile {
+    #[expect(clippy::write_literal)]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "<{}> --> [{}]", "VOLATILE", self.type_id)
     }
@@ -467,6 +475,7 @@ pub struct BtfConst {
 }
 
 impl fmt::Display for BtfConst {
+    #[expect(clippy::write_literal)]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "<{}> --> [{}]", "CONST", self.type_id)
     }
@@ -478,6 +487,7 @@ pub struct BtfRestrict {
 }
 
 impl fmt::Display for BtfRestrict {
+    #[expect(clippy::write_literal)]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "<{}> --> [{}]", "RESTRICT", self.type_id)
     }
@@ -509,7 +519,8 @@ pub struct BtfFunc<'a> {
     pub kind: BtfFuncKind,
 }
 
-impl<'a> fmt::Display for BtfFunc<'a> {
+impl fmt::Display for BtfFunc<'_> {
+    #[expect(clippy::write_literal)]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -528,7 +539,7 @@ pub struct BtfFuncParam<'a> {
     pub type_id: u32,
 }
 
-impl<'a> fmt::Display for BtfFuncParam<'a> {
+impl fmt::Display for BtfFuncParam<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "'{}' --> [{}]", disp_name(self.name), self.type_id)
     }
@@ -540,7 +551,8 @@ pub struct BtfFuncProto<'a> {
     pub params: Vec<BtfFuncParam<'a>>,
 }
 
-impl<'a> fmt::Display for BtfFuncProto<'a> {
+impl fmt::Display for BtfFuncProto<'_> {
+    #[expect(clippy::write_literal)]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -580,7 +592,8 @@ pub struct BtfVar<'a> {
     pub kind: BtfVarKind,
 }
 
-impl<'a> fmt::Display for BtfVar<'a> {
+impl fmt::Display for BtfVar<'_> {
+    #[expect(clippy::write_literal)]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -617,7 +630,8 @@ pub struct BtfDatasec<'a> {
     pub vars: Vec<BtfDatasecVar>,
 }
 
-impl<'a> fmt::Display for BtfDatasec<'a> {
+impl fmt::Display for BtfDatasec<'_> {
+    #[expect(clippy::write_literal)]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -640,7 +654,8 @@ pub struct BtfFloat<'a> {
     pub sz: u32,
 }
 
-impl<'a> fmt::Display for BtfFloat<'a> {
+impl fmt::Display for BtfFloat<'_> {
+    #[expect(clippy::write_literal)]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "<{}> '{}' sz:{}", "FLOAT", disp_name(self.name), self.sz)?;
         Ok(())
@@ -654,7 +669,8 @@ pub struct BtfDeclTag<'a> {
     pub comp_idx: u32,
 }
 
-impl<'a> fmt::Display for BtfDeclTag<'a> {
+impl fmt::Display for BtfDeclTag<'_> {
+    #[expect(clippy::write_literal)]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -673,7 +689,8 @@ pub struct BtfTypeTag<'a> {
     pub type_id: u32,
 }
 
-impl<'a> fmt::Display for BtfTypeTag<'a> {
+impl fmt::Display for BtfTypeTag<'_> {
+    #[expect(clippy::write_literal)]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -709,7 +726,8 @@ pub enum BtfType<'a> {
     Enum64(BtfEnum64<'a>),
 }
 
-impl<'a> fmt::Display for BtfType<'a> {
+impl fmt::Display for BtfType<'_> {
+    #[expect(clippy::write_literal)]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             BtfType::Void => write!(f, "<{}>", "VOID"),
@@ -736,7 +754,7 @@ impl<'a> fmt::Display for BtfType<'a> {
     }
 }
 
-impl<'a> BtfType<'a> {
+impl BtfType<'_> {
     pub fn kind(&self) -> BtfKind {
         match self {
             BtfType::Void => BtfKind::Void,
@@ -765,25 +783,25 @@ impl<'a> BtfType<'a> {
     pub fn name(&self) -> &str {
         match self {
             BtfType::Void => EMPTY,
-            BtfType::Int(t) => &t.name,
+            BtfType::Int(t) => t.name,
             BtfType::Ptr(_) => EMPTY,
             BtfType::Array(_) => EMPTY,
-            BtfType::Struct(t) => &t.name,
-            BtfType::Union(t) => &t.name,
-            BtfType::Enum(t) => &t.name,
-            BtfType::Fwd(t) => &t.name,
-            BtfType::Typedef(t) => &t.name,
+            BtfType::Struct(t) => t.name,
+            BtfType::Union(t) => t.name,
+            BtfType::Enum(t) => t.name,
+            BtfType::Fwd(t) => t.name,
+            BtfType::Typedef(t) => t.name,
             BtfType::Volatile(_) => EMPTY,
             BtfType::Const(_) => EMPTY,
             BtfType::Restrict(_) => EMPTY,
-            BtfType::Func(t) => &t.name,
+            BtfType::Func(t) => t.name,
             BtfType::FuncProto(_) => EMPTY,
-            BtfType::Var(t) => &t.name,
-            BtfType::Datasec(t) => &t.name,
-            BtfType::Float(t) => &t.name,
-            BtfType::DeclTag(t) => &t.name,
-            BtfType::TypeTag(t) => &t.name,
-            BtfType::Enum64(t) => &t.name,
+            BtfType::Var(t) => t.name,
+            BtfType::Datasec(t) => t.name,
+            BtfType::Float(t) => t.name,
+            BtfType::DeclTag(t) => t.name,
+            BtfType::TypeTag(t) => t.name,
+            BtfType::Enum64(t) => t.name,
         }
     }
 }
@@ -878,7 +896,7 @@ pub struct BtfExtLine<'a> {
     pub col_num: u32,
 }
 
-impl<'a> fmt::Display for BtfExtLine<'a> {
+impl fmt::Display for BtfExtLine<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -938,7 +956,7 @@ pub struct BtfExtCoreReloc<'a> {
     pub kind: BtfCoreRelocKind,
 }
 
-impl<'a> fmt::Display for BtfExtCoreReloc<'a> {
+impl fmt::Display for BtfExtCoreReloc<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -1285,7 +1303,7 @@ impl<'a> Btf<'a> {
         let bits = info & 0xff;
         Ok(BtfType::Int(BtfInt {
             name: Btf::get_btf_str(strs, t.name_off)?,
-            bits: bits,
+            bits,
             offset: off,
             encoding: match enc {
                 0 => BtfIntEncoding::None,
@@ -1376,7 +1394,7 @@ impl<'a> Btf<'a> {
             let v = extra.pread_with::<btf_enum64>(off, self.endian)?;
             vals.push(BtfEnum64Value {
                 name: Btf::get_btf_str(strs, v.name_off)?,
-                value: i64::from(v.val_lo32) + i64::from(v.val_hi32) << 32,
+                value: (i64::from(v.val_lo32) + i64::from(v.val_hi32)) << 32,
             });
             off += size_of::<btf_enum64>();
         }
@@ -1417,7 +1435,7 @@ impl<'a> Btf<'a> {
         }
         Ok(BtfType::FuncProto(BtfFuncProto {
             res_type_id: t.type_id,
-            params: params,
+            params,
         }))
     }
 
@@ -1458,7 +1476,7 @@ impl<'a> Btf<'a> {
         Ok(BtfType::Datasec(BtfDatasec {
             name: Btf::get_btf_str(strs, t.name_off)?,
             sz: t.type_id, // it's a type/size union in C
-            vars: vars,
+            vars,
         }))
     }
 
@@ -1472,7 +1490,7 @@ impl<'a> Btf<'a> {
         Ok(BtfType::DeclTag(BtfDeclTag {
             name: Btf::get_btf_str(strs, t.name_off)?,
             type_id: t.type_id,
-            comp_idx: comp_idx,
+            comp_idx,
         }))
     }
 
@@ -1520,7 +1538,7 @@ impl<'a> Btf<'a> {
             secs.push(BtfExtSection::<BtfExtFunc> {
                 name: Btf::get_btf_str(strs, sec_hdr.sec_name_off)?,
                 rec_sz: rec_sz as usize,
-                recs: recs,
+                recs,
             });
 
             data = &data[(sec_hdr.num_info * rec_sz) as usize..];
@@ -1562,7 +1580,7 @@ impl<'a> Btf<'a> {
             secs.push(BtfExtSection::<BtfExtLine> {
                 name: Btf::get_btf_str(strs, sec_hdr.sec_name_off)?,
                 rec_sz: rec_sz as usize,
-                recs: recs,
+                recs,
             });
 
             data = &data[(sec_hdr.num_info * rec_sz) as usize..];
@@ -1613,13 +1631,13 @@ impl<'a> Btf<'a> {
                 };
                 let relo = {
                     let access_spec_str = Btf::get_btf_str(strs, rec.access_spec_off)?;
-                    let access_spec = Btf::parse_reloc_access_spec(&access_spec_str)?;
+                    let access_spec = Btf::parse_reloc_access_spec(access_spec_str)?;
                     BtfExtCoreReloc {
                         insn_off: rec.insn_off,
                         type_id: rec.type_id,
-                        access_spec_str: access_spec_str,
-                        access_spec: access_spec,
-                        kind: kind,
+                        access_spec_str,
+                        access_spec,
+                        kind,
                     }
                 };
                 recs.push(relo);
@@ -1627,7 +1645,7 @@ impl<'a> Btf<'a> {
             secs.push(BtfExtSection::<BtfExtCoreReloc> {
                 name: Btf::get_btf_str(strs, sec_hdr.sec_name_off)?,
                 rec_sz: rec_sz as usize,
-                recs: recs,
+                recs,
             });
 
             data = &data[(sec_hdr.num_info * rec_sz) as usize..];

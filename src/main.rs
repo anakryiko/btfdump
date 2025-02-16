@@ -17,7 +17,7 @@ use btf::relocator::{Relocator, RelocatorCfg};
 use btf::types::*;
 use btf::{btf_error, BtfError, BtfResult};
 
-const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Clone, Debug)]
 enum DumpFormat {
@@ -233,7 +233,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                                     Ok(s) => print!("{}", s),
                                     Err(e) => print!(" ERROR: {}", e),
                                 };
-                                println!("");
+                                println!();
                             }
                         }
                     }
@@ -242,8 +242,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                 DumpFormat::JsonPretty => panic!("JSON output is not yet supported!"),
                 DumpFormat::C => {
                     let cfg = c_dumper::CDumperCfg {
-                        verbose: verbose,
-                        union_as_struct: union_as_struct,
+                        verbose,
+                        union_as_struct,
                     };
                     let mut dumper = c_dumper::CDumper::new(&btf, cfg);
                     dumper.dump_types(filter)?;
@@ -269,7 +269,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             let targ_mmap = unsafe { memmap::Mmap::map(&targ_file) }?;
             let targ_elf = object::File::parse(&*targ_mmap)?;
             let targ_btf = Btf::load_elf(&targ_elf)?;
-            let cfg = RelocatorCfg { verbose: verbose };
+            let cfg = RelocatorCfg { verbose };
             let mut relocator = Relocator::new(&targ_btf, &local_btf, cfg);
             let relocs = relocator.relocate()?;
             for r in relocs {
@@ -289,8 +289,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn create_query_filter(q: QueryArgs) -> BtfResult<Box<dyn Fn(u32, &BtfType) -> bool>> {
-    let mut filters: Vec<Box<dyn Fn(u32, &BtfType) -> bool>> = Vec::new();
+type Filter = Box<dyn Fn(u32, &BtfType) -> bool>;
+
+fn create_query_filter(q: QueryArgs) -> BtfResult<Filter> {
+    let mut filters: Vec<Filter> = Vec::new();
     if !q.kinds.is_empty() {
         let kinds = q.kinds;
         filters.push(Box::new(move |_id: u32, bt: &BtfType| -> bool {
@@ -316,7 +318,7 @@ fn create_query_filter(q: QueryArgs) -> BtfResult<Box<dyn Fn(u32, &BtfType) -> b
                     return true;
                 }
             }
-            return false;
+            false
         }))
     } else {
         Ok(Box::new(|_: u32, _: &BtfType| true))
@@ -389,6 +391,7 @@ fn stat_btf(elf: &object::File) -> BtfResult<()> {
             }
 
             if btf.has_ext() {
+                #[derive(Default)]
                 struct Section {
                     func_cnt: usize,
                     func_sz: usize,
@@ -397,32 +400,24 @@ fn stat_btf(elf: &object::File) -> BtfResult<()> {
                     core_reloc_cnt: usize,
                     core_reloc_sz: usize,
                 }
-                let new_sec = || Section {
-                    func_cnt: 0,
-                    func_sz: 0,
-                    line_cnt: 0,
-                    line_sz: 0,
-                    core_reloc_cnt: 0,
-                    core_reloc_sz: 0,
-                };
-                let mut sec_stats = BTreeMap::new();
-                let mut total = new_sec();
+                let mut sec_stats = BTreeMap::<_, Section>::new();
+                let mut total = Section::default();
                 for sec in btf.func_secs() {
-                    let s = sec_stats.entry(&sec.name).or_insert_with(new_sec);
+                    let s = sec_stats.entry(&sec.name).or_default();
                     s.func_cnt += sec.recs.len();
                     s.func_sz += sec.rec_sz * sec.recs.len();
                     total.func_cnt += sec.recs.len();
                     total.func_sz += sec.rec_sz * sec.recs.len();
                 }
                 for sec in btf.line_secs() {
-                    let s = sec_stats.entry(&sec.name).or_insert_with(new_sec);
+                    let s = sec_stats.entry(&sec.name).or_default();
                     s.line_cnt += sec.recs.len();
                     s.line_sz += sec.rec_sz * sec.recs.len();
                     total.line_cnt += sec.recs.len();
                     total.line_sz += sec.rec_sz * sec.recs.len();
                 }
                 for sec in btf.core_reloc_secs() {
-                    let s = sec_stats.entry(&sec.name).or_insert_with(new_sec);
+                    let s = sec_stats.entry(&sec.name).or_default();
                     s.core_reloc_cnt += sec.recs.len();
                     s.core_reloc_sz += sec.rec_sz * sec.recs.len();
                     total.core_reloc_cnt += sec.recs.len();

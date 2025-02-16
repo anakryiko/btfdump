@@ -15,10 +15,7 @@ impl<'a> BtfIndex<'a> {
             name_index: HashMap::new(),
         };
         for (i, t) in btf.types().iter().enumerate() {
-            let e = index
-                .name_index
-                .entry(&t.name())
-                .or_insert_with(|| Vec::new());
+            let e = index.name_index.entry(t.name()).or_default();
             e.push(i as u32);
         }
         index

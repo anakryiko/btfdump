@@ -6,30 +6,20 @@ use regex::RegexSet;
 use crate::types::*;
 use crate::{btf_error, BtfResult};
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
 enum OrderState {
+    #[default]
     NotOrdered,
     Ordering,
     Ordered,
 }
 
-impl Default for OrderState {
-    fn default() -> Self {
-        OrderState::NotOrdered
-    }
-}
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
 enum EmitState {
+    #[default]
     NotEmitted,
     Emitting,
     Emitted,
-}
-
-impl Default for EmitState {
-    fn default() -> Self {
-        EmitState::NotEmitted
-    }
 }
 
 #[derive(Default)]
@@ -62,8 +52,8 @@ pub struct CDumper<'a> {
 impl<'a> CDumper<'a> {
     pub fn new(btf: &'a Btf<'a>, cfg: CDumperCfg) -> CDumper<'a> {
         let mut dumper = CDumper {
-            btf: btf,
-            cfg: cfg,
+            btf,
+            cfg,
             state: Vec::new(),
             names: HashMap::new(),
         };
@@ -378,7 +368,7 @@ impl<'a> CDumper<'a> {
     }
 
     fn emit_composite_fwd(&mut self, id: u32, t: &'a BtfComposite) -> bool {
-        if NAMES_BLACKLIST.is_match(&t.name) {
+        if NAMES_BLACKLIST.is_match(t.name) {
             return false;
         }
         let keyword = if !t.is_struct && self.cfg.union_as_struct {
@@ -393,11 +383,11 @@ impl<'a> CDumper<'a> {
             keyword,
             self.resolve_type_name(NamedKind::Type, id, t.name)
         );
-        return true;
+        true
     }
 
     fn emit_composite_def(&mut self, id: u32, t: &'a BtfComposite, lvl: usize) {
-        if NAMES_BLACKLIST.is_match(&t.name) {
+        if NAMES_BLACKLIST.is_match(t.name) {
             return;
         }
         let keyword = if !t.is_struct && self.cfg.union_as_struct {
@@ -415,7 +405,7 @@ impl<'a> CDumper<'a> {
             self.emit_bit_padding(offset, m, packed, lvl + 1);
 
             print!("\n{}", pfx(lvl + 1));
-            self.emit_type_decl(m.type_id, &m.name, lvl + 1);
+            self.emit_type_decl(m.type_id, m.name, lvl + 1);
 
             if m.bit_size == 0 {
                 offset = m.bit_offset + self.btf.get_size_of(m.type_id) * 8;
@@ -426,7 +416,7 @@ impl<'a> CDumper<'a> {
             print!(";");
         }
         if !t.members.is_empty() {
-            print!("\n");
+            println!();
         }
         print!("{}}}", pfx(lvl));
         if packed {
@@ -450,7 +440,7 @@ impl<'a> CDumper<'a> {
         }
         // even if original struct was marked as packed, we haven't detected any misalignment, so
         // there is no effect of packedness for given struct
-        return false;
+        false
     }
 
     fn emit_bit_padding(&self, offset: u32, m: &BtfMember, packed: bool, lvl: usize) {
@@ -492,7 +482,7 @@ impl<'a> CDumper<'a> {
     }
 
     fn emit_enum_def(&mut self, id: u32, t: &'a BtfEnum, lvl: usize) {
-        if NAMES_BLACKLIST.is_match(&t.name) {
+        if NAMES_BLACKLIST.is_match(t.name) {
             return;
         }
         let name = self.resolve_type_name(NamedKind::Type, id, t.name);
@@ -502,7 +492,7 @@ impl<'a> CDumper<'a> {
         } else {
             print!("enum{}{} {{", sep(&name), name);
             for v in &t.values {
-                let val_uniq_name = self.resolve_name(NamedKind::Ident, &v.name);
+                let val_uniq_name = self.resolve_name(NamedKind::Ident, v.name);
                 print!("\n{}{} = {},", pfx(lvl + 1), &val_uniq_name, v.value);
             }
             print!("\n{}}}", pfx(lvl));
@@ -510,7 +500,7 @@ impl<'a> CDumper<'a> {
     }
 
     fn emit_enum64_def(&mut self, id: u32, t: &'a BtfEnum64, lvl: usize) {
-        if NAMES_BLACKLIST.is_match(&t.name) {
+        if NAMES_BLACKLIST.is_match(t.name) {
             return;
         }
         let name = self.resolve_type_name(NamedKind::Type, id, t.name);
@@ -520,7 +510,7 @@ impl<'a> CDumper<'a> {
         } else {
             print!("enum{}{} {{", sep(&name), name);
             for v in &t.values {
-                let val_uniq_name = self.resolve_name(NamedKind::Ident, &v.name);
+                let val_uniq_name = self.resolve_name(NamedKind::Ident, v.name);
                 print!("\n{}{} = {},", pfx(lvl + 1), &val_uniq_name, v.value);
             }
             print!("\n{}}}", pfx(lvl));
@@ -528,7 +518,7 @@ impl<'a> CDumper<'a> {
     }
 
     fn emit_fwd_def(&mut self, id: u32, t: &'a BtfFwd) {
-        if NAMES_BLACKLIST.is_match(&t.name) {
+        if NAMES_BLACKLIST.is_match(t.name) {
             return;
         }
         let name = self.resolve_type_name(NamedKind::Type, id, t.name);
@@ -545,13 +535,13 @@ impl<'a> CDumper<'a> {
     }
 
     fn emit_typedef_def(&mut self, id: u32, t: &'a BtfTypedef, lvl: usize) -> bool {
-        if NAMES_BLACKLIST.is_match(&t.name) {
+        if NAMES_BLACKLIST.is_match(t.name) {
             return false;
         }
         let name = self.resolve_type_name(NamedKind::Ident, id, t.name);
         print!("typedef ");
         self.emit_type_decl(t.type_id, &name, lvl);
-        return true;
+        true
     }
 
     fn emit_type_decl(&mut self, mut id: u32, fname: &str, lvl: usize) {
@@ -719,7 +709,7 @@ impl<'a> CDumper<'a> {
                         if i == arg_cnt - 1 && t.params[arg_cnt - 1].type_id == 0 {
                             print!("...");
                         } else {
-                            self.emit_type_decl(p.type_id, &p.name, lvl);
+                            self.emit_type_decl(p.type_id, p.name, lvl);
                         }
                     }
                     print!(")");
