@@ -78,9 +78,9 @@ pub struct Relocator<'a, 'b> {
 impl<'a, 'b> Relocator<'a, 'b> {
     pub fn new(targ_btf: &'a Btf, local_btf: &'b Btf, cfg: RelocatorCfg) -> Relocator<'a, 'b> {
         Relocator {
-            cfg: cfg,
-            targ_btf: targ_btf,
-            local_btf: local_btf,
+            cfg,
+            targ_btf,
+            local_btf,
             targ_index: BtfIndex::new(targ_btf),
             type_map: HashMap::new(),
         }
@@ -99,7 +99,7 @@ impl<'a, 'b> Relocator<'a, 'b> {
                     for a in &local_access {
                         print!("{}, ", a);
                     }
-                    println!("");
+                    println!();
                 }
 
                 let mut targ_off = 0;
@@ -171,14 +171,14 @@ impl<'a, 'b> Relocator<'a, 'b> {
                 }
                 self.type_map.insert(rec.type_id, matched_ids);
                 relocs.push(Reloc {
-                    sec_id: sec_id,
-                    reloc_id: reloc_id,
+                    sec_id,
+                    reloc_id,
                     local_type_id: rec.type_id,
                     local_offset: local_off as usize,
                     local_spec: rec.access_spec.clone(),
-                    targ_type_id: targ_type_id,
+                    targ_type_id,
                     targ_offset: targ_off as usize,
-                    targ_spec: targ_spec,
+                    targ_spec,
                 });
             }
         }
@@ -197,28 +197,29 @@ impl<'a, 'b> Relocator<'a, 'b> {
             type_id: id,
             arr_idx: spec[0],
         });
-        for i in 1..spec.len() {
+        for (i, s) in spec.iter().enumerate().skip(1) {
+            let s = *s;
             id = btf.skip_mods_and_typedefs(id);
             match btf.type_by_id(id) {
                 BtfType::Struct(t) => {
-                    let m = &t.members[spec[i]];
+                    let m = &t.members[s];
                     let next_id = btf.skip_mods_and_typedefs(m.type_id);
                     if !m.name.is_empty() {
                         res.push(Accessor::Field {
                             type_id: id,
-                            field_idx: spec[i],
+                            field_idx: s,
                             field_name: m.name.to_owned(),
                         });
                     }
                     id = next_id;
                 }
                 BtfType::Union(t) => {
-                    let m = &t.members[spec[i]];
+                    let m = &t.members[s];
                     let next_id = btf.skip_mods_and_typedefs(m.type_id);
                     if !m.name.is_empty() {
                         res.push(Accessor::Field {
                             type_id: id,
-                            field_idx: spec[i],
+                            field_idx: s,
                             field_name: m.name.to_owned(),
                         });
                     }
@@ -228,7 +229,7 @@ impl<'a, 'b> Relocator<'a, 'b> {
                     id = btf.skip_mods_and_typedefs(t.val_type_id);
                     res.push(Accessor::Array {
                         type_id: id,
-                        arr_idx: spec[i],
+                        arr_idx: s,
                     });
                 }
                 _ => spec_error(
@@ -247,21 +248,22 @@ impl<'a, 'b> Relocator<'a, 'b> {
         let mut id = btf.skip_mods_and_typedefs(type_id);
         let mut off = spec[0] as u32 * Relocator::type_size(btf, id)?;
 
-        for i in 1..spec.len() {
+        for (i, s) in spec.iter().enumerate().skip(1) {
+            let s = *s;
             id = btf.skip_mods_and_typedefs(id);
             match btf.type_by_id(id) {
                 BtfType::Struct(t) => {
-                    let m = &t.members[spec[i]];
+                    let m = &t.members[s];
                     off += m.bit_offset / 8;
                     id = m.type_id;
                 }
                 BtfType::Union(t) => {
-                    let m = &t.members[spec[i]];
+                    let m = &t.members[s];
                     off += m.bit_offset / 8;
                     id = m.type_id;
                 }
                 BtfType::Array(t) => {
-                    off += spec[i] as u32 * Relocator::type_size(btf, t.val_type_id)?;
+                    off += s as u32 * Relocator::type_size(btf, t.val_type_id)?;
                     id = t.val_type_id;
                 }
                 _ => spec_error(
@@ -289,8 +291,7 @@ impl<'a, 'b> Relocator<'a, 'b> {
             ))?,
         }
 
-        for i in 1..local_spec.len() {
-            let s = &local_spec[i];
+        for (i, s) in local_spec.iter().enumerate().skip(1) {
             match s {
                 &Accessor::Array { arr_idx, .. } => match targ_type {
                     BtfType::Array(t) => {
@@ -410,33 +411,33 @@ impl<'a, 'b> Relocator<'a, 'b> {
     }
 
     fn relo_is_field_based(kind: BtfCoreRelocKind) -> bool {
-        match kind {
+        matches!(
+            kind,
             BtfCoreRelocKind::ByteOff
-            | BtfCoreRelocKind::ByteSz
-            | BtfCoreRelocKind::FieldExists
-            | BtfCoreRelocKind::Signed
-            | BtfCoreRelocKind::LShiftU64
-            | BtfCoreRelocKind::RShiftU64 => true,
-            _ => false,
-        }
+                | BtfCoreRelocKind::ByteSz
+                | BtfCoreRelocKind::FieldExists
+                | BtfCoreRelocKind::Signed
+                | BtfCoreRelocKind::LShiftU64
+                | BtfCoreRelocKind::RShiftU64
+        )
     }
 
     fn relo_is_type_based(kind: BtfCoreRelocKind) -> bool {
-        match kind {
+        matches!(
+            kind,
             BtfCoreRelocKind::LocalTypeId
-            | BtfCoreRelocKind::TargetTypeId
-            | BtfCoreRelocKind::TypeExists
-            | BtfCoreRelocKind::TypeMatches
-            | BtfCoreRelocKind::TypeSize => true,
-            _ => false,
-        }
+                | BtfCoreRelocKind::TargetTypeId
+                | BtfCoreRelocKind::TypeExists
+                | BtfCoreRelocKind::TypeMatches
+                | BtfCoreRelocKind::TypeSize
+        )
     }
 
     fn relo_is_enumval_based(kind: BtfCoreRelocKind) -> bool {
-        match kind {
-            BtfCoreRelocKind::EnumvalExists | BtfCoreRelocKind::EnumvalValue => true,
-            _ => false,
-        }
+        matches!(
+            kind,
+            BtfCoreRelocKind::EnumvalExists | BtfCoreRelocKind::EnumvalValue
+        )
     }
 
     pub fn pretty_print_access_spec(btf: &Btf, rec: &BtfExtCoreReloc) -> BtfResult<String> {
@@ -515,15 +516,16 @@ impl<'a, 'b> Relocator<'a, 'b> {
             write!(buf, "[{}]", spec[0])?;
         }
 
-        for i in 1..spec.len() {
+        for (i, s) in spec.iter().enumerate().skip(1) {
+            let s = *s;
             match btf.type_by_id(id) {
                 BtfType::Struct(t) => {
-                    let m = &t.members[spec[i] as usize];
+                    let m = &t.members[s];
                     write!(buf, ".{}", m.name)?;
                     id = btf.skip_mods_and_typedefs(m.type_id);
                 }
                 BtfType::Union(t) => {
-                    let m = &t.members[spec[i] as usize];
+                    let m = &t.members[s];
                     if !m.name.is_empty() {
                         write!(buf, ".{}", m.name)?;
                     } else {
@@ -532,7 +534,7 @@ impl<'a, 'b> Relocator<'a, 'b> {
                     id = btf.skip_mods_and_typedefs(m.type_id);
                 }
                 BtfType::Array(t) => {
-                    write!(buf, "[{}]", spec[i] as usize)?;
+                    write!(buf, "[{}]", s)?;
                     id = btf.skip_mods_and_typedefs(t.val_type_id);
                 }
                 _ => spec_error(
