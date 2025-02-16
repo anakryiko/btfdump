@@ -1,6 +1,6 @@
 use std::collections::HashMap;
+use std::sync::LazyLock;
 
-use lazy_static::lazy_static;
 use regex::RegexSet;
 
 use crate::types::*;
@@ -806,10 +806,8 @@ impl<'a> CDumper<'a> {
     }
 }
 
-lazy_static! {
-    static ref NAMES_BLACKLIST: RegexSet =
-        RegexSet::new(&["__builtin_va_list"]).expect("invalid blacklist regexes");
-}
+static NAMES_BLACKLIST: LazyLock<RegexSet> =
+    LazyLock::new(|| RegexSet::new(["__builtin_va_list"]).expect("invalid blacklist regexes"));
 
 const EMPTY: &str = "";
 const SPACE: &str = " ";
