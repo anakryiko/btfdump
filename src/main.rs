@@ -5,7 +5,7 @@ use std::io::Write;
 
 use bitflags::bitflags;
 use clap::builder::TypedValueParser as _;
-use memmap;
+use memmap2 as memmap;
 use object::{Object, ObjectSection};
 use regex::Regex;
 use scroll::Pread;
