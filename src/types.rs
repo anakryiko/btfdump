@@ -1199,31 +1199,20 @@ impl<'a> Btf<'a> {
     }
 
     /// Loads BTF information from the given slice of bytes.
-    pub fn load_file(data: &'a [u8]) -> BtfResult<Self> {
-        if data.starts_with(&BTF_MAGIC.to_ne_bytes()) {
-            // If the file starts with BTF magic number, parse BTF from the
-            // full file content.
+    pub fn load_raw(data: &'a [u8]) -> BtfResult<Self> {
+        #[cfg(target_endian = "little")]
+        let endian = scroll::LE;
+        #[cfg(target_endian = "big")]
+        let endian = scroll::BE;
 
-            #[cfg(target_endian = "little")]
-            let endian = scroll::LE;
-            #[cfg(target_endian = "big")]
-            let endian = scroll::BE;
+        #[cfg(target_pointer_width = "64")]
+        let ptr_sz = 8_u32;
+        #[cfg(target_pointer_width = "32")]
+        let ptr_sz = 4_u32;
 
-            #[cfg(target_pointer_width = "64")]
-            let ptr_sz = 8_u32;
-            #[cfg(target_pointer_width = "32")]
-            let ptr_sz = 4_u32;
+        let (btf, _) = Self::load(endian, ptr_sz, data)?;
 
-            let (btf, _) = Self::load(endian, ptr_sz, data)?;
-
-            Ok(btf)
-        } else {
-            // Otherwise, assume it's an object file and parse BTF from
-            // the `.BTF` section.
-
-            let file = object::File::parse(data)?;
-            Self::load_elf(&file)
-        }
+        Ok(btf)
     }
 
     pub fn type_size(t: &BtfType) -> usize {

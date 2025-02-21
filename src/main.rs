@@ -1,7 +1,9 @@
 use std::collections::BTreeMap;
 use std::collections::HashMap;
+use std::convert::TryInto as _;
 use std::error::Error;
-use std::io::Write;
+use std::io::Read as _;
+use std::io::Write as _;
 
 use bitflags::bitflags;
 use clap::builder::TypedValueParser as _;
@@ -10,6 +12,7 @@ use object::{Object, ObjectSection};
 use regex::Regex;
 use scroll::Pread;
 use std::mem::size_of;
+use std::mem::size_of_val;
 use std::str::FromStr as _;
 
 use btf::c_dumper;
@@ -181,6 +184,47 @@ enum Cmd {
     Version,
 }
 
+fn load_file<'a>(
+    file: impl AsRef<std::path::Path>,
+    contents: &'a mut Vec<u8>,
+    mmap: &'a mut Option<memmap::Mmap>,
+) -> BtfResult<Btf<'a>> {
+    let mut file = std::fs::File::open(file)?;
+
+    // Read the magic number first.
+    let size = size_of_val(&BTF_MAGIC).try_into()?;
+    std::io::Read::by_ref(&mut file)
+        .take(size)
+        .read_to_end(contents)?;
+
+    if *contents == BTF_MAGIC.to_ne_bytes() {
+        // If the file starts with BTF magic number, parse BTF from the
+        // full file content.
+
+        file.read_to_end(contents)?;
+        Btf::load_raw(&*contents)
+    } else {
+        // Otherwise, assume it's an object file and  parse BTF from
+        // the `.BTF` section.
+
+        let file = unsafe { memmap::Mmap::map(&file) }?;
+        let file = &*mmap.insert(file);
+        let file = object::File::parse(file.as_ref())?;
+        Btf::load_elf(&file)
+    }
+}
+
+macro_rules! load_btf {
+    ($ident:ident, $file:expr) => {
+        // These variables must be declared in the caller because the return
+        // value of load_file is borrowed from them.
+        let mut contents = Vec::new();
+        let mut mmap = None;
+
+        let $ident = load_file($file, &mut contents, &mut mmap)?;
+    };
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let cmd = clap::Parser::parse();
 
@@ -193,9 +237,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             verbose,
             union_as_struct,
         } => {
-            let file = std::fs::File::open(&file)?;
-            let file = unsafe { memmap::Mmap::map(&file) }?;
-            let btf = Btf::load_file(file.as_ref())?;
+            load_btf!(btf, file);
             let filter = create_query_filter(query)?;
 
             match format {
@@ -255,20 +297,14 @@ fn main() -> Result<(), Box<dyn Error>> {
             local_file,
             verbose,
         } => {
-            let local_file = std::fs::File::open(&local_file)?;
-            let local_mmap = unsafe { memmap::Mmap::map(&local_file) }?;
-            let local_elf = object::File::parse(&*local_mmap)?;
-            let local_btf = Btf::load_elf(&local_elf)?;
+            load_btf!(local_btf, local_file);
             if !local_btf.has_ext() {
                 return btf_error(format!(
                     "No {} section found for local ELF file, can't perform relocations.",
                     BTF_EXT_ELF_SEC
                 ));
             }
-            let targ_file = std::fs::File::open(&targ_file)?;
-            let targ_mmap = unsafe { memmap::Mmap::map(&targ_file) }?;
-            let targ_elf = object::File::parse(&*targ_mmap)?;
-            let targ_btf = Btf::load_elf(&targ_elf)?;
+            load_btf!(targ_btf, targ_file);
             let cfg = RelocatorCfg { verbose };
             let mut relocator = Relocator::new(&targ_btf, &local_btf, cfg);
             let relocs = relocator.relocate()?;
@@ -280,7 +316,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             let file = std::fs::File::open(&file)?;
             let file = unsafe { memmap::Mmap::map(&file) }?;
             let file = object::File::parse(&*file)?;
-            stat_btf(&file)?;
+            stat_elf(&file)?;
         }
         Cmd::Version => {
             println!("btfdump v{}", VERSION);
@@ -325,7 +361,7 @@ fn create_query_filter(q: QueryArgs) -> BtfResult<Filter> {
     }
 }
 
-fn stat_btf(elf: &object::File) -> BtfResult<()> {
+fn stat_elf(elf: &object::File) -> BtfResult<()> {
     let endian = if elf.is_little_endian() {
         scroll::LE
     } else {
