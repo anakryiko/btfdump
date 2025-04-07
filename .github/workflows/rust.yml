@@ -28,5 +28,4 @@ jobs:
 
       - run: cargo build  --profile ${{ matrix.profile }} --all-targets
       - run: cargo test   --profile ${{ matrix.profile }} --all-targets
-      # TODO(https://github.com/m4b/scroll/pull/112): Remove --allow clippy::unused_unit when merged.
-      - run: cargo clippy --profile ${{ matrix.profile }} --all-targets -- --deny warnings --allow clippy::unused_unit
+      - run: cargo clippy --profile ${{ matrix.profile }} --all-targets -- --deny warnings
