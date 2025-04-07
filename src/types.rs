@@ -1018,7 +1018,7 @@ impl<'a> Btf<'a> {
     pub fn get_size_of(&self, type_id: u32) -> u32 {
         match self.type_by_id(type_id) {
             BtfType::Void => 0,
-            BtfType::Int(t) => (t.bits + 7) / 8,
+            BtfType::Int(t) => t.bits.div_ceil(8),
             BtfType::Volatile(t) => self.get_size_of(t.type_id),
             BtfType::Const(t) => self.get_size_of(t.type_id),
             BtfType::Restrict(t) => self.get_size_of(t.type_id),
@@ -1043,7 +1043,7 @@ impl<'a> Btf<'a> {
     pub fn get_align_of(&self, type_id: u32) -> u32 {
         match self.type_by_id(type_id) {
             BtfType::Void => 0,
-            BtfType::Int(t) => min(self.ptr_sz, (t.bits + 7) / 8),
+            BtfType::Int(t) => min(self.ptr_sz, t.bits.div_ceil(8)),
             BtfType::Volatile(t) => self.get_align_of(t.type_id),
             BtfType::Const(t) => self.get_align_of(t.type_id),
             BtfType::Restrict(t) => self.get_align_of(t.type_id),
