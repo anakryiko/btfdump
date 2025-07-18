@@ -40,8 +40,7 @@ impl std::str::FromStr for DumpFormat {
             "json-pretty" | "jp" => Ok(DumpFormat::JsonPretty),
             "c" => Ok(DumpFormat::C),
             _ => Err(BtfError::new_owned(format!(
-                "unrecognized dump format: '{}'",
-                s
+                "unrecognized dump format: '{s}'"
             ))),
         }
     }
@@ -82,8 +81,7 @@ impl std::str::FromStr for Datasets {
             "all" | "a" => Ok(Datasets::ALL),
             "default" | "def" | "d" => Ok(Datasets::DEFAULT),
             _ => Err(BtfError::new_owned(format!(
-                "unrecognized dataset: '{}'",
-                s
+                "unrecognized dataset: '{s}'"
             ))),
         }
     }
@@ -245,7 +243,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     if datasets.contains(Datasets::TYPES) {
                         for (i, t) in btf.types().iter().enumerate() {
                             if filter(i as u32, t) {
-                                println!("#{}: {}", i, t);
+                                println!("#{i}: {t}");
                             }
                         }
                     }
@@ -253,7 +251,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                         for (i, sec) in btf.func_secs().iter().enumerate() {
                             println!("\nFunc section #{} '{}':", i, sec.name);
                             for (j, rec) in sec.recs.iter().enumerate() {
-                                println!("#{}: {}", j, rec);
+                                println!("#{j}: {rec}");
                             }
                         }
                     }
@@ -261,7 +259,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                         for (i, sec) in btf.line_secs().iter().enumerate() {
                             println!("\nLine section #{} '{}':", i, sec.name);
                             for (j, rec) in sec.recs.iter().enumerate() {
-                                println!("#{}: {}", j, rec);
+                                println!("#{j}: {rec}");
                             }
                         }
                     }
@@ -269,11 +267,11 @@ fn main() -> Result<(), Box<dyn Error>> {
                         for (i, sec) in btf.core_reloc_secs().iter().enumerate() {
                             println!("\nCore reloc section #{} '{}':", i, sec.name);
                             for (j, rec) in sec.recs.iter().enumerate() {
-                                print!("#{}: {} --> ", j, rec);
+                                print!("#{j}: {rec} --> ");
                                 std::io::stdout().flush()?;
                                 match Relocator::pretty_print_access_spec(&btf, rec) {
-                                    Ok(s) => print!("{}", s),
-                                    Err(e) => print!(" ERROR: {}", e),
+                                    Ok(s) => print!("{s}"),
+                                    Err(e) => print!(" ERROR: {e}"),
                                 };
                                 println!();
                             }
@@ -300,8 +298,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             load_btf!(local_btf, local_file);
             if !local_btf.has_ext() {
                 return btf_error(format!(
-                    "No {} section found for local ELF file, can't perform relocations.",
-                    BTF_EXT_ELF_SEC
+                    "No {BTF_EXT_ELF_SEC} section found for local ELF file, can't perform relocations."
                 ));
             }
             load_btf!(targ_btf, targ_file);
@@ -309,7 +306,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             let mut relocator = Relocator::new(&targ_btf, &local_btf, cfg);
             let relocs = relocator.relocate()?;
             for r in relocs {
-                println!("{}", r);
+                println!("{r}");
             }
         }
         Cmd::Stat { file } => {
@@ -319,7 +316,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             stat_elf(&file)?;
         }
         Cmd::Version => {
-            println!("btfdump v{}", VERSION);
+            println!("btfdump v{VERSION}");
         }
     }
     Ok(())
@@ -371,20 +368,18 @@ fn stat_elf(elf: &object::File) -> BtfResult<()> {
         let data = btf_section.data()?;
         let hdr = data.pread_with::<btf_header>(0, endian)?;
         println!(
-            "{} ELF section\n=======================================",
-            BTF_ELF_SEC
+            "{BTF_ELF_SEC} ELF section\n======================================="
         );
         println!("Data size:\t{}", data.len());
         println!("Header size:\t{}", hdr.hdr_len);
         println!("Types size:\t{}", hdr.type_len);
         println!("Strings size:\t{}", hdr.str_len);
     } else {
-        println!("{} not found.", BTF_ELF_SEC);
+        println!("{BTF_ELF_SEC} not found.");
         return Ok(());
     }
     println!(
-        "\n{} ELF section\n========================================",
-        BTF_EXT_ELF_SEC
+        "\n{BTF_EXT_ELF_SEC} ELF section\n========================================"
     );
     if let Some(ext_section) = elf.section_by_name(BTF_EXT_ELF_SEC) {
         let ext_data = ext_section.data()?;
@@ -398,10 +393,10 @@ fn stat_elf(elf: &object::File) -> BtfResult<()> {
             println!("Relocs size:\t{}", ext_hdr2.core_reloc_len);
         }
     } else {
-        println!("{} not found.", BTF_EXT_ELF_SEC);
+        println!("{BTF_EXT_ELF_SEC} not found.");
     }
     match Btf::load_elf(elf) {
-        Err(e) => println!("Failed to parse BTF data: {}", e),
+        Err(e) => println!("Failed to parse BTF data: {e}"),
         Ok(btf) => {
             let mut type_stats: HashMap<BtfKind, (usize, usize)> = HashMap::new();
             for t in &btf.types()[1..] {

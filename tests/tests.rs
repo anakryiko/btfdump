@@ -48,10 +48,7 @@ fn dump() {
             assert_eq!(
                 status.code(),
                 Some(0),
-                "{:?} failed: stdout={:?} stderr={:?}",
-                cmd,
-                stdout,
-                stderr
+                "{cmd:?} failed: stdout={stdout:?} stderr={stderr:?}"
             );
             let stdout = stdout.unwrap();
             let stderr = stderr.unwrap();
@@ -72,10 +69,7 @@ fn dump() {
             assert_eq!(
                 status.code(),
                 Some(0),
-                "{:?} failed: stdout={:?} stderr={:?}",
-                cmd,
-                stdout,
-                stderr
+                "{cmd:?} failed: stdout={stdout:?} stderr={stderr:?}"
             );
             let stdout = stdout.unwrap();
             let stderr = stderr.unwrap();

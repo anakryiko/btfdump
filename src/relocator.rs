@@ -55,8 +55,8 @@ impl fmt::Display for Accessor {
                 type_id,
                 field_idx,
                 field_name,
-            } => write!(f, "field:[{}].#{}('{}')", type_id, field_idx, field_name),
-            Accessor::Array { type_id, arr_idx } => write!(f, "array:*[{}] + {}", type_id, arr_idx),
+            } => write!(f, "field:[{type_id}].#{field_idx}('{field_name}')"),
+            Accessor::Array { type_id, arr_idx } => write!(f, "array:*[{type_id}] + {arr_idx}"),
         }
     }
 }
@@ -95,9 +95,9 @@ impl<'a, 'b> Relocator<'a, 'b> {
                 let local_access =
                     self.transform_access(self.local_btf, rec.type_id, &rec.access_spec)?;
                 if self.cfg.verbose {
-                    print!("sec#{}, r#{}: accessors = ", sec_id, reloc_id);
+                    print!("sec#{sec_id}, r#{reloc_id}: accessors = ");
                     for a in &local_access {
-                        print!("{}, ", a);
+                        print!("{a}, ");
                     }
                     println!();
                 }
@@ -115,7 +115,7 @@ impl<'a, 'b> Relocator<'a, 'b> {
                 };
                 for &id in cand_targ_ids {
                     if self.cfg.verbose {
-                        println!("sec#{}, r#{}: matching to [{}]", sec_id, reloc_id, id);
+                        println!("sec#{sec_id}, r#{reloc_id}: matching to [{id}]");
                     }
                     match self.calc_targ_spec(&local_access, id) {
                         Ok(spec) => {
@@ -158,8 +158,7 @@ impl<'a, 'b> Relocator<'a, 'b> {
                         Err(e) => {
                             if self.cfg.verbose {
                                 println!(
-                                    "sec#{}, r#{}: failed to match targ [{}]: {}",
-                                    sec_id, reloc_id, id, e
+                                    "sec#{sec_id}, r#{reloc_id}: failed to match targ [{id}]: {e}"
                                 );
                             }
                             continue;
@@ -167,7 +166,7 @@ impl<'a, 'b> Relocator<'a, 'b> {
                     }
                 }
                 if matched_ids.is_empty() {
-                    btf_error(format!("failed to find any candidate for reloc {}", rec))?;
+                    btf_error(format!("failed to find any candidate for reloc {rec}"))?;
                 }
                 self.type_map.insert(rec.type_id, matched_ids);
                 relocs.push(Reloc {
@@ -329,7 +328,7 @@ impl<'a, 'b> Relocator<'a, 'b> {
                         Ok(None) => {
                             access_error(s, i, "target field not found", targ_id, targ_type)?
                         }
-                        Err(e) => access_error(s, i, &format!("{}", e), targ_id, targ_type)?,
+                        Err(e) => access_error(s, i, &format!("{e}"), targ_id, targ_type)?,
                     }
                 }
             }
@@ -534,7 +533,7 @@ impl<'a, 'b> Relocator<'a, 'b> {
                     id = btf.skip_mods_and_typedefs(m.type_id);
                 }
                 BtfType::Array(t) => {
-                    write!(buf, "[{}]", s)?;
+                    write!(buf, "[{s}]")?;
                     id = btf.skip_mods_and_typedefs(t.val_type_id);
                 }
                 _ => spec_error(
@@ -581,7 +580,6 @@ fn access_error<T>(
     bt: &BtfType,
 ) -> BtfResult<T> {
     btf_error(format!(
-        "Unsupported accessor: {}, at #{}: {}, but is type_id: {}, type: {}",
-        spec, idx, details, type_id, bt,
+        "Unsupported accessor: {spec}, at #{idx}: {details}, but is type_id: {type_id}, type: {bt}",
     ))?
 }

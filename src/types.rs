@@ -856,8 +856,7 @@ impl std::str::FromStr for BtfKind {
             "type_tag" => Ok(BtfKind::TypeTag),
             "enum64" | "e64" => Ok(BtfKind::Enum64),
             _ => Err(BtfError::new_owned(format!(
-                "unrecognized btf kind: '{}'",
-                s
+                "unrecognized btf kind: '{s}'"
             ))),
         }
     }
@@ -1281,7 +1280,7 @@ impl<'a> Btf<'a> {
                 type_id: t.type_id,
             })),
             BTF_KIND_ENUM64 => self.load_enum64(&t, extra, strs),
-            _ => btf_error(format!("Unknown BTF kind: {}", kind)),
+            _ => btf_error(format!("Unknown BTF kind: {kind}")),
         }
     }
 
@@ -1300,7 +1299,7 @@ impl<'a> Btf<'a> {
                 BTF_INT_CHAR => BtfIntEncoding::Char,
                 BTF_INT_BOOL => BtfIntEncoding::Bool,
                 _ => {
-                    return btf_error(format!("Unknown BTF int encoding: {}", enc));
+                    return btf_error(format!("Unknown BTF int encoding: {enc}"));
                 }
             },
         }))
@@ -1438,7 +1437,7 @@ impl<'a> Btf<'a> {
                 BTF_VAR_GLOBAL_ALLOCATED => BtfVarKind::GlobalAlloc,
                 BTF_VAR_GLOBAL_EXTERNAL => BtfVarKind::GlobalExtern,
                 _ => {
-                    return btf_error(format!("Unknown BTF var kind: {}", kind));
+                    return btf_error(format!("Unknown BTF var kind: {kind}"));
                 }
             },
         }))

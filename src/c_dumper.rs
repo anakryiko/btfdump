@@ -523,12 +523,12 @@ impl<'a> CDumper<'a> {
         }
         let name = self.resolve_type_name(NamedKind::Type, id, t.name);
         match t.kind {
-            BtfFwdKind::Struct => print!("struct {}", name),
+            BtfFwdKind::Struct => print!("struct {name}"),
             BtfFwdKind::Union => {
                 if self.cfg.union_as_struct {
-                    print!("struct /*union*/ {}", name)
+                    print!("struct /*union*/ {name}")
                 } else {
-                    print!("union {}", name)
+                    print!("union {name}")
                 }
             }
         }
@@ -571,7 +571,7 @@ impl<'a> CDumper<'a> {
                     chain.pop();
                     print!("!@#! UNEXPECT TYPE DECL CHAIN ");
                     for parent_id in chain.iter().rev() {
-                        print!("[{}] --> ", parent_id);
+                        print!("[{parent_id}] --> ");
                     }
                     print!("[{}] {}", id, self.btf.type_by_id(id));
                     return;
@@ -742,7 +742,7 @@ impl<'a> CDumper<'a> {
 
     fn emit_name(&self, fname: &str, last_was_ptr: bool) {
         if last_was_ptr {
-            print!("{}", fname);
+            print!("{fname}");
         } else {
             print!("{}{}", sep(fname), fname);
         }
@@ -779,7 +779,7 @@ impl<'a> CDumper<'a> {
             if *version == 1 {
                 s.name = name.to_string()
             } else {
-                s.name = format!("{}___{}", name, version)
+                s.name = format!("{name}___{version}")
             }
         }
         s.name.clone()
@@ -791,7 +791,7 @@ impl<'a> CDumper<'a> {
         if *version == 1 {
             name.to_string()
         } else {
-            format!("{}___{}", name, version)
+            format!("{name}___{version}")
         }
     }
 }
