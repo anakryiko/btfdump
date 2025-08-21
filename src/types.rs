@@ -855,9 +855,7 @@ impl std::str::FromStr for BtfKind {
             "decl_tag" => Ok(BtfKind::DeclTag),
             "type_tag" => Ok(BtfKind::TypeTag),
             "enum64" | "e64" => Ok(BtfKind::Enum64),
-            _ => Err(BtfError::new_owned(format!(
-                "unrecognized btf kind: '{s}'"
-            ))),
+            _ => Err(BtfError::new_owned(format!("unrecognized btf kind: '{s}'"))),
         }
     }
 }
@@ -986,11 +984,11 @@ impl<'a> Btf<'a> {
         self.ptr_sz
     }
 
-    pub fn types(&self) -> &[BtfType] {
+    pub fn types(&self) -> &[BtfType<'_>] {
         &self.types
     }
 
-    pub fn type_by_id(&self, type_id: u32) -> &BtfType {
+    pub fn type_by_id(&self, type_id: u32) -> &BtfType<'_> {
         &self.types[type_id as usize]
     }
 
@@ -1002,15 +1000,15 @@ impl<'a> Btf<'a> {
         self.has_ext
     }
 
-    pub fn func_secs(&self) -> &[BtfExtSection<BtfExtFunc>] {
+    pub fn func_secs(&self) -> &[BtfExtSection<'_, BtfExtFunc>] {
         &self.func_secs
     }
 
-    pub fn line_secs(&self) -> &[BtfExtSection<BtfExtLine>] {
+    pub fn line_secs(&self) -> &[BtfExtSection<'_, BtfExtLine<'_>>] {
         &self.line_secs
     }
 
-    pub fn core_reloc_secs(&self) -> &[BtfExtSection<BtfExtCoreReloc>] {
+    pub fn core_reloc_secs(&self) -> &[BtfExtSection<'_, BtfExtCoreReloc<'_>>] {
         &self.core_reloc_secs
     }
 
