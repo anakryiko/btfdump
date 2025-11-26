@@ -429,7 +429,7 @@ impl<'a> CDumper<'a> {
             return false;
         }
         // size of a struct has to be a multiple of its alignment
-        if t.sz % self.btf.get_align_of(id) != 0 {
+        if !t.sz.is_multiple_of(self.btf.get_align_of(id)) {
             return true;
         }
         // all the non-bitfield fields have to be naturally aligned
@@ -474,7 +474,7 @@ impl<'a> CDumper<'a> {
     }
 
     fn chip_away_bits(total: u32, at_most: u32) -> u32 {
-        if total % at_most == 0 {
+        if total.is_multiple_of(at_most) {
             at_most
         } else {
             total % at_most
