@@ -130,7 +130,11 @@ impl<'a> CDumper<'a> {
             OrderState::Ordered => return Ok(true),
         }
         match self.btf.type_by_id(id) {
-            BtfType::Func(_) | BtfType::Var(_) | BtfType::Datasec(_) | BtfType::DeclTag(_) => {}
+            BtfType::Func(_)
+            | BtfType::Var(_)
+            | BtfType::Datasec(_)
+            | BtfType::DeclTag(_)
+            | BtfType::Unknown(_) => {}
             BtfType::Void | BtfType::Int(_) | BtfType::Float(_) => {
                 self.set_order_state(id, OrderState::Ordered);
                 return Ok(false);
@@ -272,7 +276,11 @@ impl<'a> CDumper<'a> {
         }
 
         match self.btf.type_by_id(id) {
-            BtfType::Func(_) | BtfType::Var(_) | BtfType::Datasec(_) | BtfType::DeclTag(_) => {}
+            BtfType::Func(_)
+            | BtfType::Var(_)
+            | BtfType::Datasec(_)
+            | BtfType::DeclTag(_)
+            | BtfType::Unknown(_) => {}
             BtfType::Void | BtfType::Int(_) | BtfType::Float(_) => {}
             BtfType::Volatile(t) => self.emit_type(t.type_id, cont_id)?,
             BtfType::Const(t) => self.emit_type(t.type_id, cont_id)?,
@@ -739,7 +747,11 @@ impl<'a> CDumper<'a> {
                         print!(" __attribute__((btf_type_tag(\"{}\")))", t.name);
                     }
                 }
-                BtfType::Func(_) | BtfType::Var(_) | BtfType::Datasec(_) | BtfType::DeclTag(_) => {
+                BtfType::Func(_)
+                | BtfType::Var(_)
+                | BtfType::Datasec(_)
+                | BtfType::DeclTag(_)
+                | BtfType::Unknown(_) => {
                     print!(
                         "!@#! UNEXPECT TYPE DECL id: {}, type: {}",
                         id,
