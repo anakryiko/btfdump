@@ -201,10 +201,10 @@ fn open_file<'a>(
         .take(size)
         .read_to_end(contents)?;
 
-    if *contents == BTF_MAGIC.to_ne_bytes() {
-        // If the file starts with BTF magic number, it's raw BTF (e.g.,
-        // /sys/kernel/btf/vmlinux). Read the full file content instead of
-        // mmap'ing, as sysfs files can't be mmap'ed.
+    if *contents == BTF_MAGIC.to_le_bytes() || *contents == BTF_MAGIC.to_be_bytes() {
+        // If the file starts with BTF magic number, in either byte order,
+        // it's raw BTF (e.g., /sys/kernel/btf/vmlinux). Read the full file
+        // content instead of mmap'ing, as sysfs files can't be mmap'ed.
 
         file.read_to_end(contents)?;
         Ok(BtfSource::Raw(&*contents))
@@ -378,7 +378,7 @@ fn create_query_filter(q: QueryArgs) -> BtfResult<Filter> {
 }
 
 fn stat_raw(data: &[u8]) -> BtfResult<()> {
-    let hdr = data.pread_with::<btf_header>(0, scroll::NATIVE)?;
+    let hdr = data.pread_with::<btf_header>(0, Btf::raw_endianness(data)?)?;
     println!("Raw BTF data\n=======================================");
     println!("Data size:\t{}", data.len());
     println!("Header size:\t{}", hdr.hdr_len);

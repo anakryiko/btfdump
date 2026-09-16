@@ -1195,12 +1195,25 @@ impl<'a> Btf<'a> {
         Ok(btf)
     }
 
+    /// Determines the byte order of raw BTF data.
+    ///
+    /// Unlike an ELF object, raw BTF has no container to say what byte order
+    /// it's in. The magic gives it away though: reading it byte-swapped means
+    /// the data is foreign-endian.
+    pub fn raw_endianness(data: &[u8]) -> BtfResult<Endian> {
+        let magic = data.pread_with::<u16>(0, scroll::LE)?;
+        if magic == BTF_MAGIC {
+            Ok(scroll::LE)
+        } else if magic.swap_bytes() == BTF_MAGIC {
+            Ok(scroll::BE)
+        } else {
+            btf_error(format!("Invalid BTF magic: {magic:#x}"))
+        }
+    }
+
     /// Loads BTF information from the given slice of bytes.
     pub fn load_raw(data: &'a [u8]) -> BtfResult<Self> {
-        #[cfg(target_endian = "little")]
-        let endian = scroll::LE;
-        #[cfg(target_endian = "big")]
-        let endian = scroll::BE;
+        let endian = Self::raw_endianness(data)?;
 
         #[cfg(target_pointer_width = "64")]
         let ptr_sz = 8_u32;
