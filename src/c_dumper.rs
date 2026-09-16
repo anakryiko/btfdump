@@ -493,7 +493,12 @@ impl<'a> CDumper<'a> {
             print!("enum{}{} {{", sep(&name), name);
             for v in &t.values {
                 let val_uniq_name = self.resolve_name(NamedKind::Ident, v.name);
-                print!("\n{}{} = {},", pfx(lvl + 1), val_uniq_name, v.value);
+                print!(
+                    "\n{}{} = {},",
+                    pfx(lvl + 1),
+                    val_uniq_name,
+                    v.value_str(t.signed)
+                );
             }
             print!("\n{}}}", pfx(lvl));
         }
@@ -511,7 +516,13 @@ impl<'a> CDumper<'a> {
             print!("enum{}{} {{", sep(&name), name);
             for v in &t.values {
                 let val_uniq_name = self.resolve_name(NamedKind::Ident, v.name);
-                print!("\n{}{} = {},", pfx(lvl + 1), val_uniq_name, v.value);
+                print!(
+                    "\n{}{} = {}{},",
+                    pfx(lvl + 1),
+                    val_uniq_name,
+                    v.value_str(t.signed),
+                    if t.signed { "LL" } else { "ULL" }
+                );
             }
             print!("\n{}}}", pfx(lvl));
         }
