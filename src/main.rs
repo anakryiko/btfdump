@@ -452,7 +452,10 @@ fn stat_btf(btf: &Btf) {
         .into_iter()
         .map(|(k, (cnt, sz))| (k, cnt, sz))
         .collect::<Vec<(BtfKind, usize, usize)>>();
-    type_stats.sort_by_key(|&(_, _, sz)| std::cmp::Reverse(sz));
+    // Kind breaks size ties, otherwise equally-sized kinds come out in
+    // whatever order the hash map happened to yield and the output isn't
+    // reproducible between runs.
+    type_stats.sort_by_key(|&(k, _, sz)| (std::cmp::Reverse(sz), k));
     println!("\nBTF types\n=======================================");
     println!("{:10} {:9} bytes ({} types)", "Total", total_sz, total_cnt);
     for (k, cnt, sz) in type_stats {

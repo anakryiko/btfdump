@@ -806,7 +806,7 @@ impl BtfType<'_> {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash)]
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash)]
 pub enum BtfKind {
     Void,
     Int,
