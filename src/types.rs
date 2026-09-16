@@ -1393,7 +1393,7 @@ impl<'a> Btf<'a> {
             let v = extra.pread_with::<btf_enum64>(off, self.endian)?;
             vals.push(BtfEnum64Value {
                 name: Btf::get_btf_str(strs, v.name_off)?,
-                value: (i64::from(v.val_lo32) + i64::from(v.val_hi32)) << 32,
+                value: (i64::from(v.val_hi32) << 32) | i64::from(v.val_lo32),
             });
             off += size_of::<btf_enum64>();
         }
