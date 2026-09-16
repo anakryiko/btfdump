@@ -47,20 +47,45 @@ pub struct CDumper<'a> {
     cfg: CDumperCfg,
     state: Vec<TypeState>,
     names: HashMap<(NamedKind, &'a str), u32>,
+    /// Decl tags, keyed by the type they are attached to. A type has no way
+    /// to find its own tags, the tags point at it.
+    decl_tags: HashMap<u32, Vec<&'a BtfDeclTag<'a>>>,
 }
 
 impl<'a> CDumper<'a> {
     pub fn new(btf: &'a Btf<'a>, cfg: CDumperCfg) -> CDumper<'a> {
+        let mut decl_tags: HashMap<u32, Vec<&'a BtfDeclTag<'a>>> = HashMap::new();
+        for t in btf.types() {
+            if let BtfType::DeclTag(t) = t {
+                decl_tags.entry(t.type_id).or_default().push(t);
+            }
+        }
         let mut dumper = CDumper {
             btf,
             cfg,
             state: Vec::new(),
             names: HashMap::new(),
+            decl_tags,
         };
         dumper
             .state
             .resize_with(btf.type_cnt() as usize, Default::default);
         dumper
+    }
+
+    /// Emits the decl tags attached to `id`, either those applying to the
+    /// type as a whole (`comp_idx` of -1) or to one of its members.
+    fn emit_decl_tags(&self, id: u32, comp_idx: i32) {
+        let Some(tags) = self.decl_tags.get(&id) else {
+            return;
+        };
+        for t in tags.iter().filter(|t| t.comp_idx == comp_idx) {
+            if t.is_attr {
+                print!(" __attribute__(({}))", t.name);
+            } else {
+                print!(" __attribute__((btf_decl_tag(\"{}\")))", t.name);
+            }
+        }
     }
 
     pub fn dump_types(
@@ -409,7 +434,7 @@ impl<'a> CDumper<'a> {
         let name = self.resolve_type_name(NamedKind::Type, id, t.name);
         print!("{}{}{} {{", keyword, sep(&name), name);
         let mut offset = 0;
-        for m in &t.members {
+        for (i, m) in t.members.iter().enumerate() {
             self.emit_bit_padding(offset, m, packed, lvl + 1);
 
             print!("\n{}", pfx(lvl + 1));
@@ -421,6 +446,7 @@ impl<'a> CDumper<'a> {
                 print!(": {}", m.bit_size);
                 offset = m.bit_offset + m.bit_size as u32;
             }
+            self.emit_decl_tags(id, i as i32);
             print!(";");
         }
         if !t.members.is_empty() {
@@ -430,6 +456,7 @@ impl<'a> CDumper<'a> {
         if packed {
             print!(" __attribute__((packed))");
         }
+        self.emit_decl_tags(id, -1);
     }
 
     fn is_struct_packed(&self, id: u32, t: &BtfComposite) -> bool {
@@ -560,6 +587,7 @@ impl<'a> CDumper<'a> {
         let name = self.resolve_type_name(NamedKind::Ident, id, t.name);
         print!("typedef ");
         self.emit_type_decl(t.type_id, &name, lvl);
+        self.emit_decl_tags(id, -1);
         true
     }
 

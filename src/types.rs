@@ -731,7 +731,9 @@ impl fmt::Display for BtfFloat<'_> {
 pub struct BtfDeclTag<'a> {
     pub name: &'a str,
     pub type_id: u32,
-    pub comp_idx: u32,
+    /// Index of the struct/union member or func argument the tag applies to,
+    /// or -1 when it applies to the type as a whole.
+    pub comp_idx: i32,
     /// kind_flag: the tag encodes an arbitrary __attribute__ rather than a
     /// btf_decl_tag one, and `name` is its attribute-list (e.g. "aligned(4)").
     pub is_attr: bool,
@@ -1626,7 +1628,7 @@ impl<'a> Btf<'a> {
         extra: &'a [u8],
         strs: &'a [u8],
     ) -> BtfResult<BtfType<'a>> {
-        let comp_idx = extra.pread_with::<u32>(0, self.endian)?;
+        let comp_idx = extra.pread_with::<i32>(0, self.endian)?;
         Ok(BtfType::DeclTag(BtfDeclTag {
             name: Btf::get_btf_str(strs, t.name_off)?,
             type_id: t.type_id,
