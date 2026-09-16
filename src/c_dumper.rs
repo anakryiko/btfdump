@@ -493,7 +493,7 @@ impl<'a> CDumper<'a> {
             print!("enum{}{} {{", sep(&name), name);
             for v in &t.values {
                 let val_uniq_name = self.resolve_name(NamedKind::Ident, v.name);
-                print!("\n{}{} = {},", pfx(lvl + 1), &val_uniq_name, v.value);
+                print!("\n{}{} = {},", pfx(lvl + 1), val_uniq_name, v.value);
             }
             print!("\n{}}}", pfx(lvl));
         }
@@ -511,7 +511,7 @@ impl<'a> CDumper<'a> {
             print!("enum{}{} {{", sep(&name), name);
             for v in &t.values {
                 let val_uniq_name = self.resolve_name(NamedKind::Ident, v.name);
-                print!("\n{}{} = {},", pfx(lvl + 1), &val_uniq_name, v.value);
+                print!("\n{}{} = {},", pfx(lvl + 1), val_uniq_name, v.value);
             }
             print!("\n{}}}", pfx(lvl));
         }
@@ -611,7 +611,7 @@ impl<'a> CDumper<'a> {
                         self.emit_enum_def(id, t, lvl); // inline anonymous enum
                     } else {
                         let uniq_name = self.resolve_type_name(NamedKind::Type, id, t.name);
-                        print!("enum {}", &uniq_name);
+                        print!("enum {}", uniq_name);
                     }
                 }
                 BtfType::Enum64(t) => {
@@ -620,7 +620,7 @@ impl<'a> CDumper<'a> {
                         self.emit_enum64_def(id, t, lvl); // inline anonymous enum
                     } else {
                         let uniq_name = self.resolve_type_name(NamedKind::Type, id, t.name);
-                        print!("enum {}", &uniq_name);
+                        print!("enum {}", uniq_name);
                     }
                 }
                 BtfType::Fwd(t) => {
@@ -630,7 +630,7 @@ impl<'a> CDumper<'a> {
                 BtfType::Typedef(t) => {
                     self.emit_mods(&mut chain);
                     let uniq_name = self.resolve_type_name(NamedKind::Ident, id, t.name);
-                    print!("{}", &uniq_name);
+                    print!("{}", uniq_name);
                 }
                 BtfType::Ptr(_) => {
                     if last_was_ptr {
@@ -721,7 +721,7 @@ impl<'a> CDumper<'a> {
                 }
                 BtfType::TypeTag(t) => {
                     self.emit_mods(&mut chain);
-                    print!(" __attribute__((btf_tag((\"{}\")))", &t.name);
+                    print!(" __attribute__((btf_tag((\"{}\")))", t.name);
                 }
                 BtfType::Func(_) | BtfType::Var(_) | BtfType::Datasec(_) | BtfType::DeclTag(_) => {
                     print!(
