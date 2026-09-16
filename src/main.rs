@@ -182,11 +182,17 @@ enum Cmd {
     Version,
 }
 
-fn load_file<'a>(
+enum BtfSource<'a> {
+    Raw(&'a [u8]),
+    // Boxed: object::File dwarfs the other variant.
+    Elf(Box<object::File<'a>>),
+}
+
+fn open_file<'a>(
     file: impl AsRef<std::path::Path>,
     contents: &'a mut Vec<u8>,
     mmap: &'a mut Option<memmap::Mmap>,
-) -> BtfResult<Btf<'a>> {
+) -> BtfResult<BtfSource<'a>> {
     let mut file = std::fs::File::open(file)?;
 
     // Read the magic number first.
@@ -196,19 +202,30 @@ fn load_file<'a>(
         .read_to_end(contents)?;
 
     if *contents == BTF_MAGIC.to_ne_bytes() {
-        // If the file starts with BTF magic number, parse BTF from the
-        // full file content.
+        // If the file starts with BTF magic number, it's raw BTF (e.g.,
+        // /sys/kernel/btf/vmlinux). Read the full file content instead of
+        // mmap'ing, as sysfs files can't be mmap'ed.
 
         file.read_to_end(contents)?;
-        Btf::load_raw(&*contents)
+        Ok(BtfSource::Raw(&*contents))
     } else {
-        // Otherwise, assume it's an object file and  parse BTF from
+        // Otherwise, assume it's an object file and parse BTF from
         // the `.BTF` section.
 
         let file = unsafe { memmap::Mmap::map(&file) }?;
         let file = &*mmap.insert(file);
-        let file = object::File::parse(file.as_ref())?;
-        Btf::load_elf(&file)
+        Ok(BtfSource::Elf(Box::new(object::File::parse(file.as_ref())?)))
+    }
+}
+
+fn load_file<'a>(
+    file: impl AsRef<std::path::Path>,
+    contents: &'a mut Vec<u8>,
+    mmap: &'a mut Option<memmap::Mmap>,
+) -> BtfResult<Btf<'a>> {
+    match open_file(file, contents, mmap)? {
+        BtfSource::Raw(data) => Btf::load_raw(data),
+        BtfSource::Elf(elf) => Btf::load_elf(&elf),
     }
 }
 
@@ -310,10 +327,12 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
         Cmd::Stat { file } => {
-            let file = std::fs::File::open(&file)?;
-            let file = unsafe { memmap::Mmap::map(&file) }?;
-            let file = object::File::parse(&*file)?;
-            stat_elf(&file)?;
+            let mut contents = Vec::new();
+            let mut mmap = None;
+            match open_file(file, &mut contents, &mut mmap)? {
+                BtfSource::Raw(data) => stat_raw(data)?,
+                BtfSource::Elf(elf) => stat_elf(&elf)?,
+            }
         }
         Cmd::Version => {
             println!("btfdump v{VERSION}");
@@ -358,6 +377,20 @@ fn create_query_filter(q: QueryArgs) -> BtfResult<Filter> {
     }
 }
 
+fn stat_raw(data: &[u8]) -> BtfResult<()> {
+    let hdr = data.pread_with::<btf_header>(0, scroll::NATIVE)?;
+    println!("Raw BTF data\n=======================================");
+    println!("Data size:\t{}", data.len());
+    println!("Header size:\t{}", hdr.hdr_len);
+    println!("Types size:\t{}", hdr.type_len);
+    println!("Strings size:\t{}", hdr.str_len);
+    match Btf::load_raw(data) {
+        Err(e) => println!("Failed to parse BTF data: {e}"),
+        Ok(btf) => stat_btf(&btf),
+    }
+    Ok(())
+}
+
 fn stat_elf(elf: &object::File) -> BtfResult<()> {
     let endian = if elf.is_little_endian() {
         scroll::LE
@@ -397,118 +430,120 @@ fn stat_elf(elf: &object::File) -> BtfResult<()> {
     }
     match Btf::load_elf(elf) {
         Err(e) => println!("Failed to parse BTF data: {e}"),
-        Ok(btf) => {
-            let mut type_stats: HashMap<BtfKind, (usize, usize)> = HashMap::new();
-            for t in &btf.types()[1..] {
-                let (cnt, sz) = type_stats.entry(t.kind()).or_insert((0, 0));
-                *cnt += 1;
-                *sz += Btf::type_size(t);
-            }
-            let mut total_cnt = 0;
-            let mut total_sz = 0;
-            for (cnt, sz) in type_stats.values() {
-                total_cnt += cnt;
-                total_sz += sz;
-            }
-            let mut type_stats = type_stats
-                .into_iter()
-                .map(|(k, (cnt, sz))| (k, cnt, sz))
-                .collect::<Vec<(BtfKind, usize, usize)>>();
-            type_stats.sort_by_key(|&(_, _, sz)| std::cmp::Reverse(sz));
-            println!("\nBTF types\n=======================================");
-            println!("{:10} {:9} bytes ({} types)", "Total", total_sz, total_cnt);
-            for (k, cnt, sz) in type_stats {
-                println!("{:10} {:9} bytes ({} types)", format!("{:?}:", k), sz, cnt);
-            }
-
-            if btf.has_ext() {
-                #[derive(Default)]
-                struct Section {
-                    func_cnt: usize,
-                    func_sz: usize,
-                    line_cnt: usize,
-                    line_sz: usize,
-                    core_reloc_cnt: usize,
-                    core_reloc_sz: usize,
-                }
-                let mut sec_stats = BTreeMap::<_, Section>::new();
-                let mut total = Section::default();
-                for sec in btf.func_secs() {
-                    let s = sec_stats.entry(&sec.name).or_default();
-                    s.func_cnt += sec.recs.len();
-                    s.func_sz += sec.rec_sz * sec.recs.len();
-                    total.func_cnt += sec.recs.len();
-                    total.func_sz += sec.rec_sz * sec.recs.len();
-                }
-                for sec in btf.line_secs() {
-                    let s = sec_stats.entry(&sec.name).or_default();
-                    s.line_cnt += sec.recs.len();
-                    s.line_sz += sec.rec_sz * sec.recs.len();
-                    total.line_cnt += sec.recs.len();
-                    total.line_sz += sec.rec_sz * sec.recs.len();
-                }
-                for sec in btf.core_reloc_secs() {
-                    let s = sec_stats.entry(&sec.name).or_default();
-                    s.core_reloc_cnt += sec.recs.len();
-                    s.core_reloc_sz += sec.rec_sz * sec.recs.len();
-                    total.core_reloc_cnt += sec.recs.len();
-                    total.core_reloc_sz += sec.rec_sz * sec.recs.len();
-                }
-                println!("\nBTF ext sections\n=======================================");
-                println!(
-                    "{:32} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}",
-                    "Section",
-                    "Func sz",
-                    "Func cnt",
-                    "Line sz",
-                    "Line cnt",
-                    "Reloc sz",
-                    "Reloc cnt"
-                );
-                println!(
-                    "{:32} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}",
-                    "--------------------------------",
-                    "----------",
-                    "----------",
-                    "----------",
-                    "----------",
-                    "----------",
-                    "----------",
-                );
-                for (k, s) in sec_stats {
-                    println!(
-                        "{:32} {:10} {:10} {:10} {:10} {:10} {:10}",
-                        k,
-                        s.func_sz,
-                        s.func_cnt,
-                        s.line_sz,
-                        s.line_cnt,
-                        s.core_reloc_sz,
-                        s.core_reloc_cnt
-                    );
-                }
-                println!(
-                    "{:32} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}",
-                    "--------------------------------",
-                    "----------",
-                    "----------",
-                    "----------",
-                    "----------",
-                    "----------",
-                    "----------",
-                );
-                println!(
-                    "{:32} {:10} {:10} {:10} {:10} {:10} {:10}",
-                    "Total",
-                    total.func_sz,
-                    total.func_cnt,
-                    total.line_sz,
-                    total.line_cnt,
-                    total.core_reloc_sz,
-                    total.core_reloc_cnt
-                );
-            }
-        }
+        Ok(btf) => stat_btf(&btf),
     }
     Ok(())
+}
+
+fn stat_btf(btf: &Btf) {
+    let mut type_stats: HashMap<BtfKind, (usize, usize)> = HashMap::new();
+    for t in &btf.types()[1..] {
+        let (cnt, sz) = type_stats.entry(t.kind()).or_insert((0, 0));
+        *cnt += 1;
+        *sz += Btf::type_size(t);
+    }
+    let mut total_cnt = 0;
+    let mut total_sz = 0;
+    for (cnt, sz) in type_stats.values() {
+        total_cnt += cnt;
+        total_sz += sz;
+    }
+    let mut type_stats = type_stats
+        .into_iter()
+        .map(|(k, (cnt, sz))| (k, cnt, sz))
+        .collect::<Vec<(BtfKind, usize, usize)>>();
+    type_stats.sort_by_key(|&(_, _, sz)| std::cmp::Reverse(sz));
+    println!("\nBTF types\n=======================================");
+    println!("{:10} {:9} bytes ({} types)", "Total", total_sz, total_cnt);
+    for (k, cnt, sz) in type_stats {
+        println!("{:10} {:9} bytes ({} types)", format!("{:?}:", k), sz, cnt);
+    }
+
+    if btf.has_ext() {
+        #[derive(Default)]
+        struct Section {
+            func_cnt: usize,
+            func_sz: usize,
+            line_cnt: usize,
+            line_sz: usize,
+            core_reloc_cnt: usize,
+            core_reloc_sz: usize,
+        }
+        let mut sec_stats = BTreeMap::<_, Section>::new();
+        let mut total = Section::default();
+        for sec in btf.func_secs() {
+            let s = sec_stats.entry(&sec.name).or_default();
+            s.func_cnt += sec.recs.len();
+            s.func_sz += sec.rec_sz * sec.recs.len();
+            total.func_cnt += sec.recs.len();
+            total.func_sz += sec.rec_sz * sec.recs.len();
+        }
+        for sec in btf.line_secs() {
+            let s = sec_stats.entry(&sec.name).or_default();
+            s.line_cnt += sec.recs.len();
+            s.line_sz += sec.rec_sz * sec.recs.len();
+            total.line_cnt += sec.recs.len();
+            total.line_sz += sec.rec_sz * sec.recs.len();
+        }
+        for sec in btf.core_reloc_secs() {
+            let s = sec_stats.entry(&sec.name).or_default();
+            s.core_reloc_cnt += sec.recs.len();
+            s.core_reloc_sz += sec.rec_sz * sec.recs.len();
+            total.core_reloc_cnt += sec.recs.len();
+            total.core_reloc_sz += sec.rec_sz * sec.recs.len();
+        }
+        println!("\nBTF ext sections\n=======================================");
+        println!(
+            "{:32} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}",
+            "Section",
+            "Func sz",
+            "Func cnt",
+            "Line sz",
+            "Line cnt",
+            "Reloc sz",
+            "Reloc cnt"
+        );
+        println!(
+            "{:32} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}",
+            "--------------------------------",
+            "----------",
+            "----------",
+            "----------",
+            "----------",
+            "----------",
+            "----------",
+        );
+        for (k, s) in sec_stats {
+            println!(
+                "{:32} {:10} {:10} {:10} {:10} {:10} {:10}",
+                k,
+                s.func_sz,
+                s.func_cnt,
+                s.line_sz,
+                s.line_cnt,
+                s.core_reloc_sz,
+                s.core_reloc_cnt
+            );
+        }
+        println!(
+            "{:32} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}",
+            "--------------------------------",
+            "----------",
+            "----------",
+            "----------",
+            "----------",
+            "----------",
+            "----------",
+        );
+        println!(
+            "{:32} {:10} {:10} {:10} {:10} {:10} {:10}",
+            "Total",
+            total.func_sz,
+            total.func_cnt,
+            total.line_sz,
+            total.line_cnt,
+            total.core_reloc_sz,
+            total.core_reloc_cnt
+        );
+    }
 }

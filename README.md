@@ -22,8 +22,10 @@ To compile btfdump:
 
 1. Dump BTF types in various formats:
 ```
-btf dump --format [human|c] <elf-file>
+btf dump --format [human|c] <file>
 ```
+`<file>` is either an ELF object with `.BTF` section or a raw BTF file, e.g., `/sys/kernel/btf/vmlinux`.
+
 2. You can filter out which types to print out using `--type`, `--name`, and `--id` options. See `btf dump --help` for more details.
 3. Check also `--dataset` option for dumping .BTF.ext data as well.
 
@@ -32,6 +34,6 @@ btf dump --format [human|c] <elf-file>
 Output high-level stats about .BTF and .BTF.ext data.
 
 ```
-btf stat <elf-file>
+btf stat <file>
 ```
   
