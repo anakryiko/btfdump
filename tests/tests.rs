@@ -93,6 +93,7 @@ fn dump() {
         let dump = std::ffi::OsStr::new("dump");
         let stat = std::ffi::OsStr::new("stat");
         let types = std::ffi::OsStr::new("--dataset=types");
+        let format_c = std::ffi::OsStr::new("--format=c");
 
         run_btf(&[dump, dst.as_os_str()]);
         run_btf(&[dump, raw.as_os_str()]);
@@ -101,6 +102,33 @@ fn dump() {
         let elf_types = run_btf(&[dump, types, dst.as_os_str()]);
         let raw_types = run_btf(&[dump, types, raw.as_os_str()]);
         assert_eq!(elf_types, raw_types);
+
+        // The C dump must be valid C; compile it back to catch malformed
+        // declarations (e.g. broken type tag attributes).
+        {
+            let c = run_btf(&[dump, format_c, dst.as_os_str()]);
+            let src = dst.with_extension("dump.c");
+            std::fs::write(&src, c).unwrap();
+
+            let mut cmd = std::process::Command::new("clang");
+            let std::process::Output {
+                status,
+                stdout,
+                stderr,
+            } = cmd
+                .args(["-g", "-target", bpf_arch, "-nostdinc", "-Wno-unused-value", "-c", "-o"])
+                .args([&dst.with_extension("dump.o"), &src])
+                .output()
+                .unwrap();
+            let stdout = std::str::from_utf8(&stdout);
+            let stderr = std::str::from_utf8(&stderr);
+            assert_eq!(
+                status.code(),
+                Some(0),
+                "compiling C dump of {} failed: stdout={stdout:?} stderr={stderr:?}",
+                path.display()
+            );
+        }
 
         let elf_stat = run_btf(&[stat, dst.as_os_str()]);
         assert!(elf_stat.contains(".BTF ELF section"), "{:?}", elf_stat);
