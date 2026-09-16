@@ -83,7 +83,10 @@ impl<'a> CDumper<'a> {
             if t.is_attr {
                 print!(" __attribute__(({}))", t.name);
             } else {
-                print!(" __attribute__((btf_decl_tag(\"{}\")))", t.name);
+                print!(
+                    " __attribute__((btf_decl_tag(\"{}\")))",
+                    c_str_escape(t.name)
+                );
             }
         }
     }
@@ -772,7 +775,10 @@ impl<'a> CDumper<'a> {
                     if t.is_attr {
                         print!(" __attribute__(({}))", t.name);
                     } else {
-                        print!(" __attribute__((btf_type_tag(\"{}\")))", t.name);
+                        print!(
+                            " __attribute__((btf_type_tag(\"{}\")))",
+                            c_str_escape(t.name)
+                        );
                     }
                 }
                 BtfType::Func(_)
@@ -850,6 +856,24 @@ impl<'a> CDumper<'a> {
             format!("{name}___{version}")
         }
     }
+}
+
+/// Escapes a BTF string for emission inside a C string literal. Tag names
+/// are arbitrary strings, so a quote or a backslash in one would otherwise
+/// end the literal early or be re-read as an escape sequence.
+fn c_str_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            _ => out.push(c),
+        }
+    }
+    out
 }
 
 static NAMES_BLACKLIST: LazyLock<RegexSet> =
