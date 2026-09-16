@@ -578,6 +578,7 @@ impl<'a> CDumper<'a> {
                 BtfType::Restrict(t) => id = t.type_id,
                 BtfType::Array(t) => id = t.val_type_id,
                 BtfType::FuncProto(t) => id = t.res_type_id,
+                BtfType::TypeTag(t) => id = t.type_id,
                 BtfType::Var(_) | BtfType::Datasec(_) | BtfType::Func(_) => {
                     chain.pop();
                     print!("!@#! UNEXPECT TYPE DECL CHAIN ");
@@ -732,7 +733,11 @@ impl<'a> CDumper<'a> {
                 }
                 BtfType::TypeTag(t) => {
                     self.emit_mods(&mut chain);
-                    print!(" __attribute__((btf_tag((\"{}\")))", t.name);
+                    if t.is_attr {
+                        print!(" __attribute__(({}))", t.name);
+                    } else {
+                        print!(" __attribute__((btf_type_tag(\"{}\")))", t.name);
+                    }
                 }
                 BtfType::Func(_) | BtfType::Var(_) | BtfType::Datasec(_) | BtfType::DeclTag(_) => {
                     print!(

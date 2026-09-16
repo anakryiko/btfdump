@@ -698,6 +698,9 @@ pub struct BtfDeclTag<'a> {
     pub name: &'a str,
     pub type_id: u32,
     pub comp_idx: u32,
+    /// kind_flag: the tag encodes an arbitrary __attribute__ rather than a
+    /// btf_decl_tag one, and `name` is its attribute-list (e.g. "aligned(4)").
+    pub is_attr: bool,
 }
 
 impl fmt::Display for BtfDeclTag<'_> {
@@ -710,7 +713,11 @@ impl fmt::Display for BtfDeclTag<'_> {
             disp_name(self.name),
             self.type_id,
             self.comp_idx,
-        )
+        )?;
+        if self.is_attr {
+            write!(f, " attr")?;
+        }
+        Ok(())
     }
 }
 
@@ -718,6 +725,8 @@ impl fmt::Display for BtfDeclTag<'_> {
 pub struct BtfTypeTag<'a> {
     pub name: &'a str,
     pub type_id: u32,
+    /// See [`BtfDeclTag::is_attr`].
+    pub is_attr: bool,
 }
 
 impl fmt::Display for BtfTypeTag<'_> {
@@ -729,7 +738,11 @@ impl fmt::Display for BtfTypeTag<'_> {
             "TYPE_TAG",
             disp_name(self.name),
             self.type_id
-        )
+        )?;
+        if self.is_attr {
+            write!(f, " attr")?;
+        }
+        Ok(())
     }
 }
 
@@ -1320,6 +1333,7 @@ impl<'a> Btf<'a> {
             BTF_KIND_TYPE_TAG => Ok(BtfType::TypeTag(BtfTypeTag {
                 name: Btf::get_btf_str(strs, t.name_off)?,
                 type_id: t.type_id,
+                is_attr: Btf::get_kind_flag(t.info),
             })),
             BTF_KIND_ENUM64 => self.load_enum64(&t, extra, strs),
             _ => btf_error(format!("Unknown BTF kind: {kind}")),
@@ -1523,6 +1537,7 @@ impl<'a> Btf<'a> {
             name: Btf::get_btf_str(strs, t.name_off)?,
             type_id: t.type_id,
             comp_idx,
+            is_attr: Btf::get_kind_flag(t.info),
         }))
     }
 
