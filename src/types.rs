@@ -38,6 +38,11 @@ pub const BTF_KIND_ENUM64: u32 = 19;
 pub const BTF_KIND_MAX: u32 = 19;
 pub const NR_BTF_KINDS: u32 = BTF_KIND_MAX + 1;
 
+/// Max possible kind, i.e. the mask of the kind bits in `btf_type.info`.
+pub const BTF_MAX_KIND: u32 = 0x0000007f;
+/// Max # of struct/union/enum members or func args.
+pub const BTF_MAX_VLEN: u32 = 0x00ffffff;
+
 pub const BTF_INT_SIGNED: u32 = 0b001;
 pub const BTF_INT_CHAR: u32 = 0b010;
 pub const BTF_INT_BOOL: u32 = 0b100;
@@ -1542,11 +1547,11 @@ impl<'a> Btf<'a> {
     }
 
     fn get_vlen(info: u32) -> u32 {
-        info & 0xffff
+        info & BTF_MAX_VLEN
     }
 
     fn get_kind(info: u32) -> u32 {
-        (info >> 24) & 0x1f
+        (info >> 24) & BTF_MAX_KIND
     }
 
     fn get_kind_flag(info: u32) -> bool {
