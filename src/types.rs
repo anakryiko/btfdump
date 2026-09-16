@@ -68,6 +68,35 @@ pub struct btf_header {
     pub str_len: u32,
 }
 
+/// Header as extended by commit 222edc843c15 ("btf: Add BTF kind layout
+/// encoding to UAPI"), which appended the optional kind layout section.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, DerivePread, Pwrite, IOread, IOwrite, SizeWith)]
+pub struct btf_header_v2 {
+    pub magic: u16,
+    pub version: u8,
+    pub flags: u8,
+    pub hdr_len: u32,
+    pub type_off: u32,
+    pub type_len: u32,
+    pub str_off: u32,
+    pub str_len: u32,
+    pub layout_off: u32,
+    pub layout_len: u32,
+}
+
+/// Describes how one BTF kind is laid out, so that kinds unknown to this
+/// parser can still be skipped over. Indexed by kind.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Default, DerivePread, Pwrite, IOread, IOwrite, SizeWith)]
+pub struct btf_layout {
+    /// Size of the singular element following `struct btf_type`.
+    pub info_sz: u8,
+    /// Size of each of the `vlen` elements that follow it.
+    pub elem_sz: u8,
+    pub flags: u16,
+}
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, DerivePread, Pwrite, IOread, IOwrite, SizeWith)]
 pub struct btf_type {
@@ -751,6 +780,32 @@ impl fmt::Display for BtfTypeTag<'_> {
     }
 }
 
+/// A type of a kind this parser doesn't know about. Its size came from the
+/// kind layout section, which is what let us skip over it and keep going.
+#[derive(Debug)]
+pub struct BtfUnknown<'a> {
+    pub kind: u32,
+    pub name: &'a str,
+    pub vlen: u32,
+    pub size_or_type: u32,
+    /// Total on-disk size of the type, including `struct btf_type`.
+    pub raw_sz: usize,
+}
+
+impl fmt::Display for BtfUnknown<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "<UNKNOWN:{}> '{}' vlen:{} sz/type:{} raw_sz:{}",
+            self.kind,
+            disp_name(self.name),
+            self.vlen,
+            self.size_or_type,
+            self.raw_sz
+        )
+    }
+}
+
 #[derive(Debug)]
 pub enum BtfType<'a> {
     Void,
@@ -773,6 +828,7 @@ pub enum BtfType<'a> {
     DeclTag(BtfDeclTag<'a>),
     TypeTag(BtfTypeTag<'a>),
     Enum64(BtfEnum64<'a>),
+    Unknown(BtfUnknown<'a>),
 }
 
 impl fmt::Display for BtfType<'_> {
@@ -799,6 +855,7 @@ impl fmt::Display for BtfType<'_> {
             BtfType::DeclTag(t) => t.fmt(f),
             BtfType::TypeTag(t) => t.fmt(f),
             BtfType::Enum64(t) => t.fmt(f),
+            BtfType::Unknown(t) => t.fmt(f),
         }
     }
 }
@@ -826,6 +883,7 @@ impl BtfType<'_> {
             BtfType::DeclTag(_) => BtfKind::DeclTag,
             BtfType::TypeTag(_) => BtfKind::TypeTag,
             BtfType::Enum64(_) => BtfKind::Enum64,
+            BtfType::Unknown(t) => BtfKind::Unknown(t.kind),
         }
     }
 
@@ -851,6 +909,7 @@ impl BtfType<'_> {
             BtfType::DeclTag(t) => t.name,
             BtfType::TypeTag(t) => t.name,
             BtfType::Enum64(t) => t.name,
+            BtfType::Unknown(t) => t.name,
         }
     }
 }
@@ -877,6 +936,7 @@ pub enum BtfKind {
     DeclTag,
     TypeTag,
     Enum64,
+    Unknown(u32),
 }
 
 impl std::str::FromStr for BtfKind {
@@ -904,7 +964,11 @@ impl std::str::FromStr for BtfKind {
             "decl_tag" => Ok(BtfKind::DeclTag),
             "type_tag" => Ok(BtfKind::TypeTag),
             "enum64" | "e64" => Ok(BtfKind::Enum64),
-            _ => Err(BtfError::new_owned(format!("unrecognized btf kind: '{s}'"))),
+            _ => s
+                .strip_prefix("unknown:")
+                .and_then(|kind| kind.parse::<u32>().ok())
+                .map(BtfKind::Unknown)
+                .ok_or_else(|| BtfError::new_owned(format!("unrecognized btf kind: '{s}'"))),
         }
     }
 }
@@ -1020,6 +1084,8 @@ pub struct Btf<'a> {
     endian: scroll::Endian,
     types: Vec<BtfType<'a>>,
     ptr_sz: u32,
+    /// Kind layout section, indexed by kind. Empty if the BTF has none.
+    layout: Vec<btf_layout>,
 
     // .BTF.ext stuff
     has_ext: bool,
@@ -1083,6 +1149,7 @@ impl<'a> Btf<'a> {
             BtfType::DeclTag(t) => self.get_size_of(t.type_id),
             BtfType::TypeTag(t) => self.get_size_of(t.type_id),
             BtfType::Enum64(t) => t.sz,
+            BtfType::Unknown(_) => 0,
         }
     }
 
@@ -1120,6 +1187,7 @@ impl<'a> Btf<'a> {
             BtfType::DeclTag(_) => 0,
             BtfType::TypeTag(t) => self.get_align_of(t.type_id),
             BtfType::Enum64(t) => min(self.ptr_sz, t.sz),
+            BtfType::Unknown(_) => 0,
         }
     }
 
@@ -1154,6 +1222,7 @@ impl<'a> Btf<'a> {
         let mut btf = Self {
             endian,
             ptr_sz,
+            layout: Vec::new(),
             types: vec![BtfType::Void],
             has_ext: false,
             func_secs: Vec::new(),
@@ -1170,6 +1239,25 @@ impl<'a> Btf<'a> {
                 "Unsupported BTF version: {}, expect: {}",
                 hdr.version, BTF_VERSION
             ));
+        }
+
+        // The kind layout section is optional and sits between the type and
+        // string sections; older BTF simply has a shorter header.
+        if hdr.hdr_len as usize >= size_of::<btf_header_v2>() {
+            let hdr2 = data.pread_with::<btf_header_v2>(0, endian)?;
+            if hdr2.layout_len > 0 {
+                if !(hdr2.layout_len as usize).is_multiple_of(size_of::<btf_layout>()) {
+                    return btf_error(format!(
+                        "Invalid BTF kind layout section length: {}",
+                        hdr2.layout_len
+                    ));
+                }
+                let off = (hdr2.hdr_len + hdr2.layout_off) as usize;
+                for i in 0..hdr2.layout_len as usize / size_of::<btf_layout>() {
+                    btf.layout
+                        .push(data.pread_with::<btf_layout>(off + i * size_of::<btf_layout>(), endian)?);
+                }
+            }
         }
 
         let str_off = (hdr.hdr_len + hdr.str_off) as usize;
@@ -1295,6 +1383,7 @@ impl<'a> Btf<'a> {
             BtfType::Enum64(t) => common + t.values.len() * size_of::<btf_enum64>(),
             BtfType::FuncProto(t) => common + t.params.len() * size_of::<btf_param>(),
             BtfType::Datasec(t) => common + t.vars.len() * size_of::<btf_datasec_var>(),
+            BtfType::Unknown(t) => t.raw_sz,
         }
     }
 
@@ -1341,7 +1430,7 @@ impl<'a> Btf<'a> {
                 is_attr: Btf::get_kind_flag(t.info),
             })),
             BTF_KIND_ENUM64 => self.load_enum64(&t, extra, strs),
-            _ => btf_error(format!("Unknown BTF kind: {kind}")),
+            _ => self.load_unknown(&t, kind, strs),
         }
     }
 
@@ -1543,6 +1632,27 @@ impl<'a> Btf<'a> {
             type_id: t.type_id,
             comp_idx,
             is_attr: Btf::get_kind_flag(t.info),
+        }))
+    }
+
+    /// Types of an unrecognized kind can still be skipped over, and their
+    /// common header reported, as long as the kind layout section says how
+    /// big they are. Without it there is no way to find the next type.
+    fn load_unknown(&self, t: &btf_type, kind: u32, strs: &'a [u8]) -> BtfResult<BtfType<'a>> {
+        let Some(layout) = self.layout.get(kind as usize) else {
+            return btf_error(format!(
+                "Unknown BTF kind: {kind} (no kind layout information to skip it)"
+            ));
+        };
+        let vlen = Btf::get_vlen(t.info);
+        Ok(BtfType::Unknown(BtfUnknown {
+            kind,
+            name: Btf::get_btf_str(strs, t.name_off)?,
+            vlen,
+            size_or_type: t.type_id,
+            raw_sz: size_of::<btf_type>()
+                + layout.info_sz as usize
+                + vlen as usize * layout.elem_sz as usize,
         }))
     }
 

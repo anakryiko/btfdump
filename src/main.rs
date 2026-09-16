@@ -378,12 +378,17 @@ fn create_query_filter(q: QueryArgs) -> BtfResult<Filter> {
 }
 
 fn stat_raw(data: &[u8]) -> BtfResult<()> {
-    let hdr = data.pread_with::<btf_header>(0, Btf::raw_endianness(data)?)?;
+    let endian = Btf::raw_endianness(data)?;
+    let hdr = data.pread_with::<btf_header>(0, endian)?;
     println!("Raw BTF data\n=======================================");
     println!("Data size:\t{}", data.len());
     println!("Header size:\t{}", hdr.hdr_len);
     println!("Types size:\t{}", hdr.type_len);
     println!("Strings size:\t{}", hdr.str_len);
+    if hdr.hdr_len as usize >= size_of::<btf_header_v2>() {
+        let hdr2 = data.pread_with::<btf_header_v2>(0, endian)?;
+        println!("Layout size:\t{}", hdr2.layout_len);
+    }
     match Btf::load_raw(data) {
         Err(e) => println!("Failed to parse BTF data: {e}"),
         Ok(btf) => stat_btf(&btf),
@@ -457,9 +462,11 @@ fn stat_btf(btf: &Btf) {
     // reproducible between runs.
     type_stats.sort_by_key(|&(k, _, sz)| (std::cmp::Reverse(sz), k));
     println!("\nBTF types\n=======================================");
-    println!("{:10} {:9} bytes ({} types)", "Total", total_sz, total_cnt);
+    // Column is wide enough for "Unknown(127):", the longest label a kind can
+    // produce now that the kind field is 7 bits.
+    println!("{:13} {:9} bytes ({} types)", "Total", total_sz, total_cnt);
     for (k, cnt, sz) in type_stats {
-        println!("{:10} {:9} bytes ({} types)", format!("{:?}:", k), sz, cnt);
+        println!("{:13} {:9} bytes ({} types)", format!("{k:?}:"), sz, cnt);
     }
 
     if btf.has_ext() {
