@@ -499,7 +499,7 @@ impl<'a, 'b> Relocator<'a, 'b> {
             match btf.type_by_id(id) {
                 BtfType::Enum(t) => {
                     let e = &t.values[spec[0]];
-                    write!(buf, "::{} = {}", e.name, e.value)?;
+                    write!(buf, "::{} = {}", e.name, e.value_str(t.signed))?;
                 }
                 _ => spec_error(spec, 0, "must be enum", id, btf.type_by_id(id))?,
             }

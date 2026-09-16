@@ -336,9 +336,15 @@ pub struct BtfEnumValue<'a> {
     pub value: i32,
 }
 
-impl fmt::Display for BtfEnumValue<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} = {}", disp_name(self.name), self.value)
+impl BtfEnumValue<'_> {
+    /// Enumerator values are stored as the raw 32-bit pattern; how it's
+    /// interpreted depends on the signedness of the enclosing enum.
+    pub fn value_str(&self, signed: bool) -> String {
+        if signed {
+            self.value.to_string()
+        } else {
+            (self.value as u32).to_string()
+        }
     }
 }
 
@@ -346,6 +352,7 @@ impl fmt::Display for BtfEnumValue<'_> {
 pub struct BtfEnum<'a> {
     pub name: &'a str,
     pub sz: u32,
+    pub signed: bool,
     pub values: Vec<BtfEnumValue<'a>>,
 }
 
@@ -360,8 +367,17 @@ impl fmt::Display for BtfEnum<'_> {
             self.sz,
             self.values.len()
         )?;
-        for i in 0..self.values.len() {
-            write!(f, "\n\t#{:02} {}", i, self.values[i])?;
+        if self.signed {
+            write!(f, " enc:signed")?;
+        }
+        for (i, v) in self.values.iter().enumerate() {
+            write!(
+                f,
+                "\n\t#{:02} {} = {}",
+                i,
+                disp_name(v.name),
+                v.value_str(self.signed)
+            )?;
         }
         Ok(())
     }
@@ -373,9 +389,14 @@ pub struct BtfEnum64Value<'a> {
     pub value: i64,
 }
 
-impl fmt::Display for BtfEnum64Value<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} = {}", disp_name(self.name), self.value)
+impl BtfEnum64Value<'_> {
+    /// See [`BtfEnumValue::value_str`].
+    pub fn value_str(&self, signed: bool) -> String {
+        if signed {
+            self.value.to_string()
+        } else {
+            (self.value as u64).to_string()
+        }
     }
 }
 
@@ -383,6 +404,7 @@ impl fmt::Display for BtfEnum64Value<'_> {
 pub struct BtfEnum64<'a> {
     pub name: &'a str,
     pub sz: u32,
+    pub signed: bool,
     pub values: Vec<BtfEnum64Value<'a>>,
 }
 
@@ -397,8 +419,17 @@ impl fmt::Display for BtfEnum64<'_> {
             self.sz,
             self.values.len()
         )?;
-        for i in 0..self.values.len() {
-            write!(f, "\n\t#{:02} {}", i, self.values[i])?;
+        if self.signed {
+            write!(f, " enc:signed")?;
+        }
+        for (i, v) in self.values.iter().enumerate() {
+            write!(
+                f,
+                "\n\t#{:02} {} = {}",
+                i,
+                disp_name(v.name),
+                v.value_str(self.signed)
+            )?;
         }
         Ok(())
     }
@@ -1381,6 +1412,7 @@ impl<'a> Btf<'a> {
         Ok(BtfType::Enum(BtfEnum {
             name: Btf::get_btf_str(strs, t.name_off)?,
             sz: t.type_id, // it's a type/size union in C
+            signed: Btf::get_kind_flag(t.info),
             values: vals,
         }))
     }
@@ -1400,6 +1432,7 @@ impl<'a> Btf<'a> {
         Ok(BtfType::Enum64(BtfEnum64 {
             name: Btf::get_btf_str(strs, t.name_off)?,
             sz: t.type_id, // it's a type/size union in C
+            signed: Btf::get_kind_flag(t.info),
             values: vals,
         }))
     }
