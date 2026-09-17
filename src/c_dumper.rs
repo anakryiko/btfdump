@@ -554,13 +554,26 @@ impl<'a> CDumper<'a> {
             print!("enum{}{} {{", sep(&name), name);
             for v in &t.values {
                 let val_uniq_name = self.resolve_name(NamedKind::Ident, v.name);
-                print!(
-                    "\n{}{} = {}{},",
-                    pfx(lvl + 1),
-                    val_uniq_name,
-                    v.value_str(t.signed),
-                    if t.signed { "LL" } else { "ULL" }
-                );
+                if t.signed && v.value == i64::MIN {
+                    // C has no negative literals. Writing the magnitude of
+                    // i64::MIN negates a literal too large for long long, so
+                    // it becomes unsigned and the enumerator comes out
+                    // positive. Spell it the way <stdint.h> spells INT64_MIN.
+                    print!(
+                        "\n{}{} = ({}LL - 1),",
+                        pfx(lvl + 1),
+                        val_uniq_name,
+                        i64::MIN + 1
+                    );
+                } else {
+                    print!(
+                        "\n{}{} = {}{},",
+                        pfx(lvl + 1),
+                        val_uniq_name,
+                        v.value_str(t.signed),
+                        if t.signed { "LL" } else { "ULL" }
+                    );
+                }
             }
             print!("\n{}}}", pfx(lvl));
         }
