@@ -1,3 +1,7 @@
+// scroll_derive's Pread derive generates `Self { field: field, ... }` with
+// spans of the original field idents, which clippy flags since Rust 1.99.
+#![allow(clippy::redundant_field_names)]
+
 use std::cmp::{max, min};
 use std::ffi::{c_char, CStr};
 use std::fmt;
