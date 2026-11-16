@@ -361,8 +361,8 @@ impl fmt::Display for BtfComposite<'_> {
             self.sz,
             self.members.len()
         )?;
-        for i in 0..self.members.len() {
-            write!(f, "\n\t#{:02} {}", i, self.members[i])?;
+        for (i, m) in self.members.iter().enumerate() {
+            write!(f, "\n\t#{:02} {}", i, m)?;
         }
         Ok(())
     }
@@ -630,8 +630,8 @@ impl fmt::Display for BtfFuncProto<'_> {
             self.res_type_id,
             self.params.len()
         )?;
-        for i in 0..self.params.len() {
-            write!(f, "\n\t#{:02} {}", i, self.params[i])?;
+        for (i, p) in self.params.iter().enumerate() {
+            write!(f, "\n\t#{:02} {}", i, p)?;
         }
         Ok(())
     }
@@ -710,8 +710,8 @@ impl fmt::Display for BtfDatasec<'_> {
             self.sz,
             self.vars.len()
         )?;
-        for i in 0..self.vars.len() {
-            write!(f, "\n\t#{:02} {}", i, self.vars[i])?;
+        for (i, v) in self.vars.iter().enumerate() {
+            write!(f, "\n\t#{:02} {}", i, v)?;
         }
         Ok(())
     }
